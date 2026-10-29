@@ -1,0 +1,13 @@
+{
+  "name": "s-trader-paper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.14.0" },
+  "scripts": {
+    "test": "node --test *.test.mjs",
+    "demo": "node cli.mjs demo",
+    "status": "node cli.mjs status"
+  },
+  "dependencies": { "ws": "8.22.0" }
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "mode": "paper",
+  "hypothesisOnly": true,
+  "note": "Null values are deliberate: decide explicit PAPER experiment settings before running. No live order implementation exists. 35% / 35% and the maximum of 3 symbols are fixed in the engine.",
+  "initialCashKrw": null,
+  "maxPositions": 3,
+  "maxPositionKrw": null,
+  "dailyLossLimitKrw": null,
+  "breakevenTriggerPct": null,
+  "breakevenOffsetPct": null,
+  "maxInitialRiskPct": 0.02,
+  "buyFeeBps": null,
+  "sellFeeBps": null,
+  "sellTaxBps": null,
+  "slippageBps": null,
+  "fillParticipation": null,
+  "maxSpreadBps": null,
+  "maxQuoteAgeMs": null,
+  "pendingTtlMs": null,
+  "reentryCooldownMs": null,
+  "pattern": {
+    "breakoutBps": null,
+    "pullbackBandBps": null,
+    "invalidationBps": null,
+    "reboundBps": null,
+    "trendExitBps": null,
+    "setupTtlMs": null
+  },
+  "plans": []
+}

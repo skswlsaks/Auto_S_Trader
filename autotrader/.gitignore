@@ -1,0 +1,11 @@
+node_modules/
+.env
+.env.*
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+config.local.json
+.venv/
+__pycache__/
+*.pyc
+.toss-token-cache.json

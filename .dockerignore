@@ -1,0 +1,7 @@
+**
+!autotrader/
+!autotrader/*.mjs
+!autotrader/package.json
+!autotrader/package-lock.json
+!autotrader/Dockerfile
+autotrader/*.test.mjs

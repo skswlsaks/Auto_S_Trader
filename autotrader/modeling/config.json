@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "research_only": true,
+  "start_date": "2025-10-29",
+  "end_date": "2026-10-28",
+  "sector_name": "반도체",
+  "sector_id": null,
+  "symbols": [],
+  "data_dir": "../../outputs/model-research/data",
+  "runs_dir": "../../outputs/model-research/runs",
+  "credentials_file": "../.env.toss.local",
+  "api_min_interval_seconds": 0.35,
+  "api_max_pages_per_series": 5000,
+  "pattern": {
+    "pivot_right_bars": 2,
+    "lookback_bars": 60,
+    "breakout_atr": 0.1,
+    "pullback_atr": 0.8,
+    "invalidation_atr": 0.5,
+    "rebound_atr": 0.5,
+    "setup_max_bars": 30,
+    "cooldown_bars": 10
+  },
+  "execution": {
+    "assumption_note": "Research assumptions, NOT verified brokerage costs or execution performance.",
+    "costs_verified": false,
+    "buy_fee_bps": 1.5,
+    "sell_fee_bps": 1.5,
+    "sell_tax_bps": 20.0,
+    "slippage_bps": 5.0,
+    "half_spread_bps": 2.0,
+    "participation": 0.01,
+    "max_initial_risk_pct": 0.02,
+    "breakeven_trigger_pct": 0.005,
+    "max_holding_minutes": 30,
+    "initial_cash_krw": 10000000,
+    "max_position_krw": 3000000,
+    "max_positions": 3,
+    "daily_loss_limit_pct": 0.02
+  },
+  "training": {
+    "trials": 30,
+    "seed": 42,
+    "threads": 4,
+    "min_days": 120,
+    "min_candidates": 500,
+    "min_validation_trades": 20,
+    "holdout_fraction": 0.1666666667,
+    "cv_folds": 3,
+    "max_estimators": 1500,
+    "early_stopping_rounds": 50
+  }
+}
