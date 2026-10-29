@@ -87,3 +87,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Local autotrader configuration
+*.sqlite*
+.toss-token-cache.json

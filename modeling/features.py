@@ -36,13 +36,14 @@ def regular_bars(frame):
 def daily_features(adjusted, raw):
     a = adjusted.copy().sort_values("timestamp")
     a["day"] = pd.to_datetime(a.timestamp, utc=True).dt.tz_convert("Asia/Seoul").dt.strftime("%Y-%m-%d")
-    prior = pd.DataFrame({"day": a.day, "daily_momentum20": a.close.pct_change(20).shift(1)})
+    prior = pd.DataFrame({"known_from": pd.to_datetime(a.day) + pd.Timedelta(days=1), "daily_momentum20": a.close.pct_change(20)})
     for n in (20, 60, 240):
-        prior[f"daily_ma{n}_distance"] = (a.close / a.close.rolling(n, min_periods=n).mean() - 1).shift(1)
+        prior[f"daily_ma{n}_distance"] = a.close / a.close.rolling(n, min_periods=n).mean() - 1
     r = raw.copy().sort_values("timestamp")
     r["day"] = pd.to_datetime(r.timestamp, utc=True).dt.tz_convert("Asia/Seoul").dt.strftime("%Y-%m-%d")
-    r["previous_close"] = r.close.shift(1)
-    return prior.merge(r[["day", "previous_close"]], on="day", validate="one_to_one")
+    r["known_from"] = pd.to_datetime(r.day) + pd.Timedelta(days=1)
+    r["previous_close"] = r.close
+    return prior.merge(r[["known_from", "previous_close"]], on="known_from", validate="one_to_one").sort_values("known_from")
 
 
 def structural_features(bars, symbol, config):
@@ -127,7 +128,8 @@ def symbol_features(minutes, adjusted, raw, symbol, config):
     f = structural_features(bars, symbol, config)
     if f.empty:
         return f
-    f = f.merge(daily_features(adjusted, raw), on="day", how="left", validate="many_to_one")
+    f["known_from"] = pd.to_datetime(f.day)
+    f = pd.merge_asof(f.sort_values("known_from"), daily_features(adjusted, raw), on="known_from", direction="backward").sort_values("timestamp").reset_index(drop=True)
     first_open = f.groupby("day").open.transform("first")
     f["opening_gap"] = first_open / f.previous_close - 1
     return f.replace([np.inf, -np.inf], np.nan)
