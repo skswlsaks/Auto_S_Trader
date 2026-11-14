@@ -172,3 +172,11 @@ uv run python -m arena publish                 # 공용 대시보드 업로드
 - 학습 구간에서는 탐욕 정책 누적이 −2%p에서 최고 +42%p(최종 +37%p)로 올랐지만 평가 구간에서는 개선이 없다. 학습 구간 과적합이며, 현재 관측 특징으로는 거를 신호를 찾지 못했다는 결과다.
 - 같은 구간에서는 지도학습 하락 전이 청산(`…half_percent_delay1.bear@late`, −0.35%)이 가장 덜 나빴다. 모두 음수이므로 운영 승격 근거는 없다.
 - 다음 후보: 장중 신호 특징 연결, 학습 구간 안의 검증 분리, 청산 설정 선택 행동(사전 승인 목록 안) 실험.
+
+## 11. AWS 배포 기록 (2026-11-14)
+
+- `infra/arena`를 기본 AWS 프로필 계정의 `ap-northeast-2`에 `apply`했다(13개 리소스). S3 run 저장소, CloudFront 대시보드, Basic 인증 함수, 팀 IAM 그룹이다.
+- 로컬 run 51개를 `submit`으로 올렸고, `pull → build → publish`로 공용 대시보드를 게시했다.
+- 확인 결과: 인증 없음·잘못된 비밀번호 401, 올바른 인증 200(data.json run 51개, 제출자 기록 포함), S3 직접 접근 403.
+- URL·비밀번호는 저장소에 기록하지 않는다. `terraform -chdir=infra/arena output dashboard_url`, `... output -raw basic_auth_password`로 확인한다. state는 배포자 로컬에만 있다.
+- 실제 브라우저 화면은 아직 확인하지 않았다. 팀원 IAM 연결(`team_users`)도 아직 하지 않았다.
