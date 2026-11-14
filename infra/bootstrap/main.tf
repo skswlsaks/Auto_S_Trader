@@ -25,10 +25,10 @@ variable "aws_profile" {
   default = "default"
 }
 
-variable "github_repo" {
-  description = "owner/name allowed to assume the deploy role"
+variable "github_sub_prefix" {
+  description = "OIDC sub prefix of the repo. This repo uses GitHub immutable subjects (owner@id/repo@id); check with: gh api repos/OWNER/REPO/actions/oidc/customization/sub"
   type        = string
-  default     = "skswlsaks/Auto_S_Trader"
+  default     = "repo:skswlsaks@13283962/Auto_S_Trader@1438464209"
 }
 
 variable "deploy_branch" {
@@ -111,7 +111,7 @@ resource "aws_iam_role" "deploy" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/${var.deploy_branch}"
+          "token.actions.githubusercontent.com:sub" = "${var.github_sub_prefix}:ref:refs/heads/${var.deploy_branch}"
         }
       }
     }]
