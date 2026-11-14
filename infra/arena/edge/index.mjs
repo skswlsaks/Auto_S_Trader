@@ -8,6 +8,7 @@ const STATE_COOKIE = "arena_state";
 let cfg, jwks;
 
 const TIMEOUT_MS = 2500; // viewer-request functions are capped at 5 s and 128 MB
+const BUDGET_MS = 4200;   // total time allowed for the cold-start config lookup
 
 // SSM GetParameter over HTTPS with a hand-made SigV4 signature. Importing the AWS SDK costs seconds
 // at 128 MB, which made cold starts time out (503). Credentials come from the Lambda role env vars.
@@ -34,11 +35,14 @@ export function signSsmRequest(name, env = process.env, now = new Date(), region
 async function config() {
   if (!cfg) {
     const regions = [...new Set([process.env.AWS_REGION, "us-east-1"].filter(Boolean))];
+    const deadline = Date.now() + BUDGET_MS; // whole lookup must finish before the 5 s edge limit
     let last;
     for (const region of regions) {
+      const left = deadline - Date.now();
+      if (left < 250) break;
       try {
         const { url, init } = signSsmRequest(PARAM, process.env, new Date(), region);
-        const r = await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+        const r = await fetch(url, { ...init, signal: AbortSignal.timeout(left) });
         if (!r.ok) throw new Error(`ssm ${region} ${r.status}`);
         cfg = JSON.parse((await r.json()).Parameter.Value); // { region, userPoolId, clientId, domain, jwks }
         if (cfg.jwks && !jwks) jwks = toKeys(cfg.jwks);
@@ -47,7 +51,7 @@ async function config() {
         last = err;
       }
     }
-    throw last;
+    throw last || new Error("config lookup budget exhausted");
   }
   return cfg;
 }
