@@ -36,12 +36,24 @@
 ### 3.2 제출물(Run) `runs/<run_id>/`
 
 ```
-run.json      # 메타데이터 (필수)
-trades.json   # 거래 목록 (필수)
-curve.json    # 학습 곡선 (선택: RL 보상, 검증 손실 등)
+run.json            # 메타데이터 (필수) + provenance + artifacts 목록
+trades.json         # 거래 목록 (필수)
+curve.json          # 학습 곡선 (선택: RL 보상, 검증 손실 등)
+artifacts/          # 모델 파일 (정책 가중치, Q 테이블, joblib 모델 등)
+reproductions/      # arena reproduce 결과 보고서 (누적)
+submission.json     # 공유 저장소가 기록: 제출자·시각·내용/결과 해시
 ```
 
-`run.json` 필수 필드: `schema_version`, `run_id`, `track_id`, `split`(dev|holdout), `model.name`, `model.family`(rule|supervised|rl|baseline), `model.version`, `author`, `created_at`, `artifact_hash`(모델/코드 해시). 선택: `notes`, `params`, `source`(원 실험 경로).
+`run.json` 필수 필드: `schema_version`, `run_id`, `track_id`, `split`(트랙 windows의 키), `model.name`, `model.family`(rule|supervised|rl|baseline), `model.version`, `author`, `created_at`, `artifact_hash`(모델 정의 해시). 선택: `notes`, `params`, `source`(원 실험 경로).
+
+재현 필드(`write_run`이 자동 기록):
+- `provenance.code`: 저장소, 커밋, 브랜치, 미커밋 변경 여부와 파일
+- `provenance.env`: Python·플랫폼·주요 패키지 버전, `uv.lock` 해시
+- `provenance.command`: 같은 run을 다시 만드는 `arena` 명령
+- `provenance.inputs`: 입력 데이터 파일의 경로(데이터 루트 기준)·크기·sha256
+- `artifacts`: 모델 파일 이름·크기·sha256
+
+결과 해시(`result_sha256`)는 거래·곡선과 모델 정의 필드만으로 계산한다. 그래서 같은 결과에 재현 정보·모델 파일을 나중에 덧붙이는 것(enrich)은 허용하고, 결과가 바뀌면 같은 run_id로는 거부한다.
 
 `trades.json` 각 거래 필수 필드: `symbol`, `entry_at`, `exit_at`(미청산이면 null), `net_return`(비용 후, 소수 0.01=1%), `complete`(bool). 선택: `exit_reason`, `quantity`, `entry_price`, `exit_price`, `signal_at`.
 
@@ -149,7 +161,10 @@ uv run python -m arena submit <run_id> ...     # 검증 후 업로드 (불변)
 uv run python -m arena remote-ls               # 제출 목록·제출자
 uv run python -m arena pull && uv run python -m arena build
 uv run python -m arena publish                 # 공용 대시보드 업로드
+uv run python -m arena reproduce <run_id>      # 재현 확인 (보고서는 run과 함께 저장·업로드)
 ```
+
+재현 확인은 세 단계다. (1) 기록된 입력 데이터 해시가 지금 데이터와 같은지, (2) 저장된 모델 파일만으로 같은 거래가 나오는지(RL 정책), (3) 기록된 커밋을 임시 git worktree로 꺼내 기록된 명령을 다시 실행했을 때 거래·모델 해시·모델 파일이 같은지. 커밋되지 않은 변경으로 만든 run은 "부분 확인"으로 표시한다. 모델 파일은 `aws s3 cp $ARENA_REMOTE/runs/<run_id>/artifacts/ ./<run_id>/ --recursive`로 받는다.
 
 새 모델은 `arena.store.write_run(meta, trades, curve)`로 run을 만든다(예: `arena/examples/bandit_agent.py`, `arena/rl_train.py`). 다른 언어로는 3.2 형식의 JSON 파일을 직접 쓰면 된다.
 
@@ -187,3 +202,15 @@ uv run python -m arena publish                 # 공용 대시보드 업로드
 - 검증: 미로그인 시 페이지는 Cognito로 302, `data.json`은 401이다. 임시 사용자로 Hosted UI 로그인 → 콜백 → 원래 주소 복귀 → 대시보드 200·run 51개를 스크립트로 확인했고, 임시 사용자는 삭제했다.
 - `infra/bootstrap`: Terraform state S3 버킷(S3 네이티브 잠금), GitHub OIDC 공급자, `main` 전용 배포 역할을 만들었다. 두 스택의 state를 로컬에서 S3로 이전했다.
 - `.github/workflows/deploy.yml`: PR에서는 테스트와 Terraform 검증만 한다. `main`에서는 OIDC 인증 → `apply` → 공유 run으로 대시보드 재빌드·게시 → 로그인 강제 확인까지 한다.
+
+## 13. 재현 기록·모델 저장·대시보드 개편 (2026-11-14)
+
+- 모든 run에 재현 정보(provenance)와 모델 파일을 함께 저장한다. RL 정책은 `model.json`(가중치·정규화 통계·특징·행동), bandit은 `q_table.json`이다. 가져온 selective run은 원 실험의 상승 감지 모델(`entry-up-model.joblib`, `liquid-trend/20261030-v1`)과 하락 확인 모델(`exit-down-model.joblib`, `shape-v2/20261030-development-v1`)을 protocol 해시로 찾아 첨부했다.
+- 기존 51개 run을 깨끗한 커밋 `f400d284`에서 다시 생성했다. 결과 해시가 기존과 모두 같아 공유 저장소에 enrich로 덧붙였다(최초 제출자 유지).
+- `arena reproduce`로 51개 모두 **재현됨**을 확인했다. 입력 해시는 51/51 일치했다. 저장된 모델 재생은 RL 정책 3/3 통과(그 외는 해당 없음)했다. 커밋 재실행은 51/51에서 거래·모델 해시가 일치했다. 보고서는 각 run의 `reproductions/`와 S3에 있다.
+- 한계: 재현은 같은 입력 데이터가 있어야 한다. 원천 데이터(`outputs/model-research`)는 아직 공유 저장소에 없으므로, 다른 팀원은 데이터를 받은 뒤에만 재학습 재현을 할 수 있다. 모델 파일 재생은 데이터 없이 할 수 없다(평가 후보 생성에 원천 데이터 필요).
+- 대시보드를 컴포넌트 구조(`site/index.html`, `app.css`, `app.js`)로 다시 만들었다.
+  - 순위표: 각 행이 평균 순수익 95% 구간과 무작위 기준선 범위를 같은 축에 그리는 forest plot이다.
+  - 상세 패널: 성과·재현·정보 탭으로 나뉜다.
+  - 비교: 하단 비교 트레이와 비교 보기(지표별 소형 다중 차트, 누적 곡선, 모델 지도)로 한다.
+  - URL에 구간·선택 run·비교 목록이 저장되어 링크로 같은 화면을 공유할 수 있다.
