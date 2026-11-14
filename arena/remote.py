@@ -130,8 +130,73 @@ class S3Backend(Backend):
         self._aws("sync", "--only-show-errors", f"{self.url}/runs", str(dest))
 
 
+class Boto3Backend(Backend):
+    """S3 via boto3 (used where the aws CLI is absent, e.g. the AgentCore container)."""
+
+    def __init__(self, url: str):
+        import boto3
+        self.bucket, _, self.prefix = url[len("s3://"):].partition("/")
+        self.prefix = self.prefix.strip("/")
+        self.s3 = boto3.client("s3")
+
+    def _key(self, rel: str) -> str:
+        return f"{self.prefix}/{rel}" if self.prefix else rel
+
+    def get_bytes(self, rel: str) -> bytes | None:
+        try:
+            return self.s3.get_object(Bucket=self.bucket, Key=self._key(rel))["Body"].read()
+        except self.s3.exceptions.NoSuchKey:
+            return None
+
+    def put_bytes(self, rel: str, data: bytes):
+        self.s3.put_object(Bucket=self.bucket, Key=self._key(rel), Body=data)
+
+    def list_runs(self):
+        out, token = [], None
+        while True:
+            kw = {"Bucket": self.bucket, "Prefix": self._key("runs/"), "Delimiter": "/"} | ({"ContinuationToken": token} if token else {})
+            r = self.s3.list_objects_v2(**kw)
+            out += [p["Prefix"].rstrip("/").rsplit("/", 1)[-1] for p in r.get("CommonPrefixes", [])]
+            token = r.get("NextContinuationToken")
+            if not token:
+                return sorted(out)
+
+    def read_json(self, run_id, name):
+        b = self.get_bytes(f"runs/{run_id}/{name}")
+        return json.loads(b) if b else None
+
+    def upload_dir(self, src, dest):
+        src = Path(src)
+        for f in sorted(p for p in src.rglob("*") if p.is_file()):
+            self.put_bytes(f"{dest}/{f.relative_to(src).as_posix()}", f.read_bytes())
+
+    def put_file(self, src, dest):
+        self.put_bytes(dest, Path(src).read_bytes())
+
+    def _download(self, rel_prefix, dest):
+        dest = Path(dest)
+        pager = self.s3.get_paginator("list_objects_v2")
+        base = self._key(rel_prefix).rstrip("/") + "/"
+        for page in pager.paginate(Bucket=self.bucket, Prefix=base):
+            for o in page.get("Contents", []):
+                target = dest / o["Key"][len(base):]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                self.s3.download_file(self.bucket, o["Key"], str(target))
+
+    def download_prefix(self, prefix, dest):
+        self._download(prefix, dest)
+
+    def download_runs(self, dest):
+        self._download("runs", dest)
+
+
 def backend(remote: str) -> Backend:
-    return S3Backend(remote) if remote.startswith("s3://") else FolderBackend(remote)
+    if not remote.startswith("s3://"):
+        return FolderBackend(remote)
+    import shutil as _sh
+    if os.environ.get("ARENA_S3_CLIENT") == "boto3" or not _sh.which("aws"):
+        return Boto3Backend(remote)
+    return S3Backend(remote)
 
 
 def submit(run_id: str, remote: str, runs_dir: Path = RUNS, who: str | None = None) -> dict:

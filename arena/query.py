@@ -30,6 +30,13 @@ class SharedData:
 
     def _read(self, key: str) -> bytes:
         if self.remote and self.remote.startswith("s3://"):
+            from .remote import Boto3Backend, backend
+            b = backend(self.remote)
+            if isinstance(b, Boto3Backend):
+                data = b.get_bytes(f"site/data/{key}")
+                if data is None:
+                    raise FileNotFoundError(f"{self.remote}/site/data/{key}")
+                return data
             r = subprocess.run(["aws", "s3", "cp", f"{self.remote}/site/data/{key}", "-"], capture_output=True)
             if r.returncode:
                 raise FileNotFoundError(f"{self.remote}/site/data/{key}: {r.stderr.decode().strip()[:200]}")

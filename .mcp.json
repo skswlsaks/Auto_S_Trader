@@ -2,11 +2,8 @@
   "mcpServers": {
     "model-arena": {
       "type": "stdio",
-      "command": "uv",
-      "args": ["run", "--directory", ".", "--quiet", "python", "-m", "arena.mcp_server"],
-      "env": {
-        "ARENA_REMOTE": "${ARENA_REMOTE:-}"
-      }
+      "command": "python3",
+      "args": ["tools/arena_mcp_proxy.py"]
     }
   }
 }

@@ -162,6 +162,31 @@ resource "aws_iam_role_policy" "deploy" {
         Condition = { StringEquals = { "iam:AWSServiceName" = ["replicator.lambda.amazonaws.com", "logger.cloudfront.amazonaws.com"] } }
       },
       {
+        Sid      = "McpRegistry"
+        Effect   = "Allow"
+        Action   = ["ecr:*"]
+        Resource = "arn:aws:ecr:${var.region}:${local.account}:repository/${local.arena}-*"
+      },
+      {
+        Sid      = "McpRegistryLogin"
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
+        Resource = "*"
+      },
+      {
+        Sid      = "McpRuntime"
+        Effect   = "Allow"
+        Action   = ["bedrock-agentcore:*"]
+        Resource = "*"
+      },
+      {
+        Sid       = "McpServiceLinkedRoles"
+        Effect    = "Allow"
+        Action    = ["iam:CreateServiceLinkedRole"]
+        Resource  = "*"
+        Condition = { StringLike = { "iam:AWSServiceName" = ["*bedrock-agentcore*"] } }
+      },
+      {
         Sid      = "Identity"
         Effect   = "Allow"
         Action   = ["sts:GetCallerIdentity"]

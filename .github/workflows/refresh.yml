@@ -1,10 +1,10 @@
 name: refresh-data
 
-# Rebuild dashboard data from the shared store (runs, studies, conditions) every 30 minutes so
+# Rebuild dashboard data from the shared store (runs, studies, conditions) every 10 minutes so
 # results submitted by other sessions appear without a code push. Publishes site/data only.
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 permissions:

@@ -17,9 +17,11 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import base64
 import functools
+import re
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
@@ -41,7 +43,8 @@ Typical flows
   are exploratory (not multiple-testing corrected); report the q-values from studies for decisions.
 - Submit a model result: arena_schema -> arena_create_run -> arena_validate_run -> arena_submit_run.
 - Submit a condition experiment folder: arena_preview_study -> arena_submit_study.
-- Reproduce: arena_reproduce_run.
+- Reproduce: arena_reproduce_run (local server only).
+- Identity: arena_whoami. When hosted, submissions are recorded under the signed-in Cognito user.
 Rules: never pick conditions or thresholds on a locked holdout; returns are net of costs as
 decimals (0.01 = 1%); unclosed trades stay in the denominator; a run_id is immutable once submitted.
 """
@@ -272,37 +275,106 @@ def metrics_resource() -> str:
     return json.dumps(METRIC_HELP, ensure_ascii=False, indent=1)
 
 
+# ---------------------------------------------------------------- identity / remote mode
+
+REMOTE_MODE = os.environ.get("ARENA_MODE") == "remote"  # running on Bedrock AgentCore behind the Cognito JWT authorizer
+
+
+def caller(ctx: Context | None) -> dict | None:
+    """Identity from the bearer token. In remote mode AgentCore has already verified the token
+    (issuer, audience, signature, expiry) before the request reaches this container."""
+    if ctx is None:
+        return None
+    try:
+        headers = ctx.headers or {}
+    except (ValueError, AttributeError):
+        return None
+    auth = next((v for k, v in headers.items() if k.lower() == "authorization"), "")
+    if not auth.lower().startswith("bearer "):
+        return None
+    try:
+        payload = auth.split()[1].split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    except (IndexError, ValueError):
+        return None
+    return {"email": claims.get("email"), "sub": claims.get("sub"), "name": claims.get("name") or claims.get("cognito:username")}
+
+
+def _who(ctx) -> str | None:
+    c = caller(ctx)
+    return (c or {}).get("email")
+
+
+def _user_key(ctx) -> str:
+    c = caller(ctx) or {}
+    return re.sub(r"[^A-Za-z0-9@._-]", "_", c.get("email") or c.get("sub") or "anonymous")
+
+
+def _draft_prefix(ctx, run_id: str) -> str:
+    return f"drafts/{_user_key(ctx)}/{run_id}"
+
+
+def _ensure_local(run_id: str, ctx) -> Path:
+    """Remote mode: requests may land on different instances, so drafts live in the store."""
+    from . import remote, store
+    d = store.RUNS / run_id
+    if (d / "run.json").exists() or not REMOTE_MODE:
+        return d
+    remote.backend(_remote()).download_prefix(_draft_prefix(ctx, run_id), d)
+    return d
+
+
+def _no_paths(**paths):
+    used = [k for k, v in paths.items() if v]
+    if REMOTE_MODE and used:
+        raise ValueError(f"{', '.join(used)}: the hosted server cannot read files on your computer. Send the content instead "
+                         "(the Model Arena proxy converts local paths automatically).")
+
+
 # ---------------------------------------------------------------- write / submit tools
 
-def _load_trades(trades: list[dict] | None, trades_path: str | None) -> list[dict]:
+def _load_trades(trades, trades_path, trades_file_b64, trades_format) -> list[dict]:
     if trades is not None:
         return trades
-    if not trades_path:
-        raise ValueError("give trades (list) or trades_path (.json, .csv or .parquet)")
-    p = Path(trades_path).expanduser()
-    if p.suffix == ".json":
-        return json.loads(p.read_text())
+    import io
     import pandas as pd
-    df = pd.read_parquet(p) if p.suffix == ".parquet" else pd.read_csv(p)
-    df = df.astype(object).where(df.notna(), None)
-    return df.to_dict("records")
+    if trades_file_b64:
+        raw, fmt = base64.b64decode(trades_file_b64), (trades_format or "parquet").lower().lstrip(".")
+        if fmt == "json":
+            return json.loads(raw)
+        df = pd.read_parquet(io.BytesIO(raw)) if fmt == "parquet" else pd.read_csv(io.BytesIO(raw))
+    elif trades_path:
+        p = Path(trades_path).expanduser()
+        if p.suffix == ".json":
+            return json.loads(p.read_text())
+        df = pd.read_parquet(p) if p.suffix == ".parquet" else pd.read_csv(p)
+    else:
+        raise ValueError("give trades (list), trades_path (.json/.csv/.parquet) or trades_file_b64 + trades_format")
+    return df.astype(object).where(df.notna(), None).to_dict("records")
 
 
 @server.tool(annotations=WRITE_LOCAL)
 @friendly
-def arena_create_run(run_id: str, track_id: str, split: str, model_name: str, family: str, version: str, author: str,
-                     trades: list[dict] | None = None, trades_path: str | None = None, params: dict | None = None,
+def arena_create_run(run_id: str, track_id: str, split: str, model_name: str, family: str, version: str,
+                     author: str | None = None, trades: list[dict] | None = None, trades_path: str | None = None,
+                     trades_file_b64: str | None = None, trades_format: str | None = None, params: dict | None = None,
                      notes: str | None = None, command: list[str] | None = None, inputs: list[str] | None = None,
-                     artifacts: list[str] | None = None, artifact_hash: str | None = None, curve: list[dict] | None = None) -> dict:
-    """Write a standard run into the local Arena cache (outputs/arena/runs/<run_id>) and validate it.
-    command: the `arena` sub-command that regenerates it (for reproduce); inputs: data files used;
-    artifacts: model files to store with the run. Provenance (commit, env, input hashes) is recorded."""
-    from . import store
+                     inputs_info: list[dict] | None = None, artifacts: list[str] | None = None,
+                     artifacts_b64: dict[str, str] | None = None, code: dict | None = None,
+                     artifact_hash: str | None = None, curve: list[dict] | None = None, ctx: Context = None) -> dict:
+    """Create a standard run (a draft until arena_submit_run) and validate it.
+    Trades: a list, or a file (trades_path locally; trades_file_b64 + trades_format when hosted).
+    command: the `arena` sub-command that regenerates it; inputs / inputs_info: data files used (path or
+    precomputed {path, sha256, bytes}); artifacts / artifacts_b64: model files stored with the run;
+    code: {repo, commit, branch, dirty} of the code that produced it. Provenance is recorded."""
+    from . import remote, store
     from .provenance import collect
     from .store import sha, write_run
-    RUNS = store.RUNS
-    tr = _load_trades(trades, trades_path)
-    arts = {Path(a).name: Path(a).expanduser() for a in (artifacts or [])}
+    _no_paths(trades_path=trades_path, inputs=inputs, artifacts=artifacts)
+    tr = _load_trades(trades, trades_path, trades_file_b64, trades_format)
+    arts: dict = {Path(a).name: Path(a).expanduser() for a in (artifacts or [])}
+    arts |= {Path(n).name: base64.b64decode(v) for n, v in (artifacts_b64 or {}).items()}
+    author = author or _who(ctx) or "unknown"
     meta = {"run_id": run_id, "track_id": track_id, "split": split, "author": author,
             "model": {"name": model_name, "family": family, "version": version},
             "artifact_hash": artifact_hash or sha({"params": params, "artifacts": sorted(arts), "trades": len(tr)})}
@@ -310,23 +382,30 @@ def arena_create_run(run_id: str, track_id: str, split: str, model_name: str, fa
         meta["params"] = params
     if notes:
         meta["notes"] = notes
-    path = write_run(meta, tr, curve, runs_dir=RUNS, artifacts=arts or None,
-                     provenance=collect(command or ["(created via MCP; no regenerate command)"], [Path(i).expanduser() for i in (inputs or [])]))
-    return {"path": str(path), **arena_validate_run(run_id)}
+    prov = collect(command or ["(created via MCP; no regenerate command)"], [Path(i).expanduser() for i in (inputs or [])])
+    if inputs_info:
+        prov["inputs"] = list(prov["inputs"]) + inputs_info
+    if code:
+        prov["code"] = {**prov["code"], **{k: code[k] for k in ("repo", "commit", "branch", "dirty", "dirty_files") if k in code}}
+    if REMOTE_MODE:
+        prov["created_via"] = {"server": "bedrock-agentcore", "caller": _who(ctx)}
+    path = write_run(meta, tr, curve, runs_dir=store.RUNS, artifacts=arts or None, provenance=prov)
+    if REMOTE_MODE:
+        remote.backend(_remote()).upload_dir(path, _draft_prefix(ctx, run_id))
+    return {"path": str(path) if not REMOTE_MODE else f"draft {_draft_prefix(ctx, run_id)}", **arena_validate_run(run_id, ctx)}
 
 
 @server.tool(annotations=READ)
 @friendly
-def arena_validate_run(run_id: str) -> dict:
-    """Check a local run against the Arena Standard and preview its platform metrics."""
+def arena_validate_run(run_id: str, ctx: Context = None) -> dict:
+    """Check a draft/local run against the Arena Standard and preview its platform metrics."""
     from . import store
     from .metrics import score
     from .schema import load_run_dir, load_tracks, validate_run
-    d = store.RUNS / run_id
-    TRACKS = store.TRACKS
+    d = _ensure_local(run_id, ctx)
     if not (d / "run.json").exists():
-        return {"ok": False, "errors": [f"no local run {d}"]}
-    tracks = load_tracks(TRACKS)
+        return {"ok": False, "errors": [f"no draft or local run '{run_id}'. Create it with arena_create_run first."]}
+    tracks = load_tracks(store.TRACKS)
     run, trades, curve = load_run_dir(d)
     errors = validate_run(run, trades, tracks, curve)
     out = {"ok": not errors, "errors": errors}
@@ -339,28 +418,49 @@ def arena_validate_run(run_id: str) -> dict:
 
 @server.tool(annotations=SUBMIT)
 @friendly
-def arena_submit_run(run_id: str) -> dict:
-    """Validate and upload a local run to the shared store. Immutable: a different result under the same
-    run_id is rejected; the same result with more evidence is accepted as 'enriched'."""
+def arena_submit_run(run_id: str, ctx: Context = None) -> dict:
+    """Validate and upload a run to the shared store. Immutable: a different result under the same
+    run_id is rejected; the same result with more evidence is accepted as 'enriched'.
+    When hosted, the submitter is the signed-in Cognito user."""
     from . import remote, store
+    _ensure_local(run_id, ctx)
     try:
-        return remote.submit(run_id, _remote(), store.RUNS)
+        return remote.submit(run_id, _remote(), store.RUNS, who=_who(ctx))
     except SystemExit as e:
         return {"status": "rejected", "reason": str(e)}
 
 
+def _study_folder(folder: str | None, files_b64: dict[str, str] | None, study_name: str | None) -> Path:
+    """A study folder from a local path, or rebuilt from uploaded files (hosted mode)."""
+    if files_b64:
+        import tempfile
+        kind, _, version = (study_name or "").strip("/").partition("/")
+        if not kind or not version:
+            raise ValueError("study_name must be '<kind>/<version>', e.g. 'entry-gate/20261114-v1'")
+        root = Path(tempfile.mkdtemp(prefix="arena-study-")) / kind / version
+        root.mkdir(parents=True)
+        for name, b64 in files_b64.items():
+            (root / Path(name).name).write_bytes(base64.b64decode(b64))
+        return root
+    _no_paths(folder=folder)
+    if not folder:
+        raise ValueError("give folder (local) or files_b64 + study_name")
+    return Path(folder).expanduser()
+
+
 @server.tool(annotations=READ)
 @friendly
-def arena_preview_study(folder: str) -> dict:
-    """Interpret an experiment folder (study.json, built-in adapter or inference) and compute its grid locally,
-    without uploading. Use to check dimensions and numbers before arena_submit_study."""
+def arena_preview_study(folder: str | None = None, files_b64: dict[str, str] | None = None, study_name: str | None = None) -> dict:
+    """Interpret an experiment folder (study.json, built-in adapter or inference) and compute its grid
+    without uploading. Locally pass folder; when hosted the proxy sends files_b64 + study_name ('<kind>/<version>')."""
     import tempfile
     from .studies import build_study, load_spec
-    spec = load_spec(Path(folder).expanduser())
+    f = _study_folder(folder, files_b64, study_name)
+    spec = load_spec(f)
     with tempfile.TemporaryDirectory() as tmp:
-        s = build_study(Path(folder).expanduser(), Path(tmp))
+        s = build_study(f, Path(tmp))
     best = sorted((c for c in s["cells"] if c["n"] >= 30), key=lambda c: -c["mean"])[:5]
-    return {"study_id": spec["study_id"], "how": "study.json" if (Path(folder).expanduser() / "study.json").exists() else ("inferred" if spec.get("inferred") else "adapter"),
+    return {"study_id": spec["study_id"], "how": "study.json" if (f / "study.json").exists() else ("inferred" if spec.get("inferred") else "adapter"),
             "dimensions": [{"key": d["key"], "label": d["label"], "aggregate": d.get("aggregate"), "values": d["values"]} for d in s["dimensions"]],
             "n_trades": s["n_trades"], "cells": s["trials"], "significant_cells": s["significant_cells"],
             "top_cells_n30": [{"key": c["key"], "n": c["n"], "mean": c["mean"], "q_value": c["q_value"]} for c in best],
@@ -369,14 +469,20 @@ def arena_preview_study(folder: str) -> dict:
 
 @server.tool(annotations=SUBMIT)
 @friendly
-def arena_submit_study(folder: str, request_refresh: bool = True) -> dict:
-    """Upload an experiment folder's study inputs to the shared store (the folder itself is not modified).
-    The dashboard shows it after the next refresh (requested now when the GitHub CLI is available, else within 30 min)."""
+def arena_submit_study(folder: str | None = None, files_b64: dict[str, str] | None = None, study_name: str | None = None,
+                       request_refresh: bool = True, ctx: Context = None) -> dict:
+    """Upload an experiment's study inputs to the shared store (a local folder is never modified).
+    The dashboard shows it after the next refresh."""
     from . import remote
     from .studies import add_local
-    dest = add_local(Path(folder).expanduser())
+    dest = add_local(_study_folder(folder, files_b64, study_name))
+    who = _who(ctx)
+    if who:
+        spec = json.loads((dest / "study.json").read_text())
+        spec["submitted_by"] = who
+        (dest / "study.json").write_text(json.dumps(spec, ensure_ascii=False, indent=2))
     remote.backend(_remote()).upload_dir(dest, f"studies/{dest.name}")
-    out = {"status": "submitted", "study_id": dest.name}
+    out = {"status": "submitted", "study_id": dest.name, "submitted_by": who}
     if request_refresh:
         out["refresh"] = arena_request_refresh()
     return out
@@ -385,11 +491,11 @@ def arena_submit_study(folder: str, request_refresh: bool = True) -> dict:
 @server.tool(annotations=SUBMIT)
 @friendly
 def arena_request_refresh() -> str:
-    """Ask GitHub Actions to rebuild dashboard data now (needs the `gh` CLI with access; otherwise it refreshes every 30 minutes)."""
-    if not shutil.which("gh"):
-        return "gh CLI not found: the dashboard refreshes automatically within 30 minutes"
+    """Ask for a dashboard rebuild now (local: needs the `gh` CLI). The dashboard also refreshes every 10 minutes."""
+    if REMOTE_MODE or not shutil.which("gh"):
+        return "the dashboard refreshes automatically within about 10 minutes"
     r = subprocess.run(["gh", "workflow", "run", "refresh.yml", "--repo", REPO], capture_output=True, text=True)
-    return "refresh requested (about 1-2 minutes)" if r.returncode == 0 else f"could not request refresh ({r.stderr.strip()[:160]}); it refreshes within 30 minutes"
+    return "refresh requested (about 1-2 minutes)" if r.returncode == 0 else f"could not request refresh ({r.stderr.strip()[:160]}); it refreshes within about 10 minutes"
 
 
 @server.tool(annotations=SUBMIT)
@@ -397,7 +503,11 @@ def arena_request_refresh() -> str:
 def arena_reproduce_run(run_id: str, retrain: bool = False, record: bool = True) -> dict:
     """Check that a run can be regenerated: input data hashes, replay of the stored model, and (retrain=true)
     re-running the recorded command at the recorded commit. Downloads the run from the store if missing.
-    record=true uploads the report to the shared store."""
+    record=true uploads the report to the shared store. Needs the research data and the git checkout,
+    so it runs only with the local (stdio) server."""
+    if REMOTE_MODE:
+        return {"verdict": "unavailable", "reason": "reproduction needs the research data and the git checkout; run the local "
+                "server (uv run python -m arena.mcp_server) or `uv run python -m arena reproduce <run_id>` on a machine with the data"}
     from . import remote, store
     from .reproduce import reproduce
     RUNS = store.RUNS
@@ -416,6 +526,13 @@ def arena_reproduce_run(run_id: str, retrain: bool = False, record: bool = True)
         latest = sorted((RUNS / run_id / "reproductions").glob("*.json"))[-1]
         remote.record_reproduction(run_id, latest, os.environ["ARENA_REMOTE"])
     return rep
+
+
+@server.tool(annotations=READ)
+@friendly
+def arena_whoami(ctx: Context = None) -> dict:
+    """Who the server thinks you are (hosted: the signed-in Cognito user) and which store it uses."""
+    return {"mode": "hosted (Bedrock AgentCore)" if REMOTE_MODE else "local", "caller": caller(ctx), "store": data().where}
 
 
 # ---------------------------------------------------------------- prompt
@@ -439,7 +556,14 @@ def submit_results(kind: str = "run") -> str:
 
 
 def main():
-    server.run("stdio")
+    import sys
+    if REMOTE_MODE or "--http" in sys.argv:
+        from mcp.server.transport_security import TransportSecuritySettings
+        # AgentCore MCP contract: stateless streamable HTTP on 0.0.0.0:8000/mcp; the Host header is the AWS endpoint
+        server.run("streamable-http", host="0.0.0.0", port=int(os.environ.get("ARENA_PORT", "8000")), streamable_http_path="/mcp", stateless_http=True,
+                   json_response=True, transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
+    else:
+        server.run("stdio")
 
 
 if __name__ == "__main__":

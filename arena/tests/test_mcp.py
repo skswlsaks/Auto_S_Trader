@@ -17,7 +17,7 @@ from arena.store import SITE
 HAS_SITE = (SITE / "data" / "index.json").exists()
 EXPECTED = {"arena_overview", "arena_list_runs", "arena_get_run", "arena_compare_runs", "arena_list_studies", "arena_study_grid",
             "arena_list_lab_sources", "arena_lab_query", "arena_metric_definitions", "arena_schema", "arena_create_run",
-            "arena_validate_run", "arena_submit_run", "arena_preview_study", "arena_submit_study", "arena_request_refresh", "arena_reproduce_run"}
+            "arena_validate_run", "arena_submit_run", "arena_preview_study", "arena_submit_study", "arena_request_refresh", "arena_reproduce_run", "arena_whoami"}
 
 
 def run(coro):

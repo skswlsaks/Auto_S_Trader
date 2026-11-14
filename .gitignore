@@ -107,3 +107,6 @@ backend.hcl
 
 .build/
 /outputs
+
+# per-account backend settings (mcp)
+infra/mcp/backend.hcl

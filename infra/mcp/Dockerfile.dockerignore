@@ -1,0 +1,6 @@
+**
+!pyproject.toml
+!uv.lock
+!arena/**
+arena/**/__pycache__
+arena/tests

@@ -40,7 +40,7 @@ jobs:
       - run: uv sync --locked
       - name: Python tests
         run: |
-          uv run python -m unittest arena.tests.test_arena arena.tests.test_remote_env arena.tests.test_provenance arena.tests.test_studies arena.tests.test_watch arena.tests.test_mcp
+          uv run python -m unittest arena.tests.test_arena arena.tests.test_remote_env arena.tests.test_provenance arena.tests.test_studies arena.tests.test_watch arena.tests.test_mcp arena.tests.test_mcp_remote
           uv run python -m unittest discover -s modeling/tests -t .
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -48,7 +48,7 @@ jobs:
       - name: Terraform fmt / validate
         run: |
           terraform fmt -check -recursive infra
-          for d in infra/arena infra/bootstrap; do
+          for d in infra/arena infra/bootstrap infra/mcp; do
             terraform -chdir=$d init -backend=false -input=false >/dev/null
             terraform -chdir=$d validate
           done
@@ -102,3 +102,57 @@ jobs:
           echo "index=$code data=$data"
           test "$code" = 302 && test "$data" = 401
           echo "### Dashboard deployed: $DASHBOARD_URL" >> "$GITHUB_STEP_SUMMARY"
+
+  mcp:
+    # Hosted MCP server: build the arm64 image, push to ECR, deploy the AgentCore runtime
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Image already built for this commit?
+        id: exists
+        run: |
+          if aws ecr describe-images --repository-name s-trader-arena-mcp --image-ids imageTag=${{ github.sha }} >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"; else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: docker/setup-buildx-action@v3
+        if: steps.exists.outputs.skip == 'false'
+      - uses: docker/build-push-action@v6
+        if: steps.exists.outputs.skip == 'false'
+        with:
+          context: .
+          file: infra/mcp/Dockerfile
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          tags: ${{ steps.ecr.outputs.registry }}/s-trader-arena-mcp:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Terraform apply (infra/mcp)
+        working-directory: infra/mcp
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="key=arena/mcp.tfstate" \
+            -backend-config="region=${AWS_REGION}" -backend-config="use_lockfile=true" -backend-config="encrypt=true"
+          terraform apply -input=false -auto-approve -var "image_tag=${{ github.sha }}" -var "state_bucket=${{ vars.TF_STATE_BUCKET }}"
+          echo "MCP_URL=$(terraform output -raw mcp_url)" >> "$GITHUB_ENV"
+      - name: Smoke check (unauthenticated calls are rejected)
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$MCP_URL" -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')
+          echo "unauthenticated tools/list -> $code"
+          test "$code" = 401 || test "$code" = 403
+          echo "### MCP server deployed (image ${{ github.sha }})" >> "$GITHUB_STEP_SUMMARY"

@@ -13,6 +13,7 @@ dependencies = [
   "joblib>=1.4,<2",
   "matplotlib>=3.10,<4",
   "mcp>=1.20",
+  "boto3>=1.35",
 ]
 
 [tool.uv]
