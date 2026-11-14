@@ -36,9 +36,14 @@ def main():
     ls = sub.add_parser("remote-ls", help="list runs in the shared store")
     ls.add_argument("--remote")
     st = sub.add_parser("study", help="condition x model experiment grids")
-    st.add_argument("action", choices=["add", "submit", "build", "list"])
+    st.add_argument("action", choices=["add", "submit", "build", "list", "watch", "status"])
     st.add_argument("folders", nargs="*", help="experiment folders (read only), e.g. outputs/model-research/entry-gate/20261114-v1")
     st.add_argument("--remote")
+    st.add_argument("--since", default="2026-11-14", help="watch: ignore experiments older than this date")
+    st.add_argument("--min-age", type=int, default=600, help="watch: seconds trades.parquet must be unchanged")
+    st.add_argument("--interval", type=int, default=0, help="watch: repeat every N seconds (0 = run once)")
+    st.add_argument("--dry-run", action="store_true")
+    st.add_argument("--no-refresh", action="store_true", help="watch: do not request a dashboard refresh")
     s = sub.add_parser("serve", help="serve dashboard")
     s.add_argument("--port", type=int, default=8765)
     a = p.parse_args()
@@ -118,6 +123,24 @@ def main():
         elif a.action == "build":
             for s_ in studies.build_all(SITE / "data" / "studies"):
                 print(s_["study_id"], s_["n_trades"], "cells", s_["trials"], "significant", s_["significant_cells"])
+        elif a.action == "watch":
+            import os
+            import time
+            from .watch import watch_once
+            url = a.remote or os.environ.get("ARENA_REMOTE")
+            stamp = lambda: time.strftime("%Y-%m-%d %H:%M:%S")
+            while True:
+                done = watch_once(url, since=a.since, min_age=a.min_age, dry_run=a.dry_run, refresh=not a.no_refresh,
+                                  log=lambda m: print(f"[{stamp()}] {m}", flush=True))
+                if not done:
+                    print(f"[{stamp()}] no new finished experiments", flush=True)
+                if not a.interval:
+                    break
+                time.sleep(a.interval)
+        elif a.action == "status":
+            from .watch import status_table
+            for folder, st_, at in status_table(since=a.since, min_age=a.min_age):
+                print(f"{folder:44s} {st_:10s} {at}")
         else:
             for p in sorted(studies.STUDIES.iterdir()) if studies.STUDIES.exists() else []:
                 print(p.name)

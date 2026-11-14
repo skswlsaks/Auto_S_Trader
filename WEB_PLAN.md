@@ -174,3 +174,29 @@ forest plot은 ECharts custom series로 만든다. 색은 지금 검증을 마�
   - 팀 IAM에 `studies/*`, `conditions/*`를 추가했다.
 - **다른 세션이 결과를 올리는 방법**: `uv run python -m arena study submit <실험 폴더>`. 폴더에 `study.json`(4.1 형식)이 있으면 어댑터 없이 올라간다.
 - **미구현**: 셀을 Arena run으로 승격하는 명령은 보류했다. 실험마다 모집단이 달라 기존 트랙과 같은 순위표에 넣으면 공정하지 않다. 실험별 트랙을 정의한 뒤 추가한다.
+
+## 10. 실험 자동 제출 (2026-11-14)
+
+다른 세션의 실험이 끝나면 사람 손을 거치지 않고 대시보드에 올라온다.
+
+```
+실험 세션 → outputs/model-research/<종류>/<버전>/ (trades.parquet + REPORT.md 등)
+   └─ launchd 10분 주기: arena study watch
+        ├─ 끝났는지 판단: trades.parquet 10분 이상 변화 없음 + 결과 표시 파일(REPORT.md, summary.csv/json, results.json)
+        ├─ 새 실험이거나 내용 해시가 바뀐 실험만 S3 studies/에 업로드 (실험 폴더는 읽기만 함)
+        └─ GitHub refresh 워크플로 실행 요청 → 1~2분 뒤 대시보드 반영 (요청이 실패해도 30분 주기 갱신이 반영)
+```
+
+- **설정 방식**: `study.json`이 있으면 그것을 쓴다. 없으면 내장 어댑터(entry-gate, picks-runner, holdout-picks)를 쓴다. 둘 다 없으면 **자동 추론**한다.
+  - 자동 추론 규칙: 수익률 `net` 등, 날짜 `D` 등, `status == ok`. 진입 방식·청산 정책·시간대·국면·위험 표시·기간 등 알려진 열을 조건 차원으로 쓴다. 같은 전략의 거래를 나누는 차원(국면·위험 표시·기간·장전/장후)에는 "전체" 합계를 만든다.
+  - `premarket-entry`는 어댑터 없이 자동 추론됐고, 원 `summary.json` 60행과 전부 일치했다.
+- **감시 범위**: 기본값은 2026-11-14 이후 결과다(`--since`). `-incomplete` 폴더와 `holdout-lock.json`이 있는 폴더는 잠금 시험으로 표시한다.
+- **명령**
+  - `uv run python -m arena study status`: 폴더별 상태(running·pending·submitted·old)
+  - `uv run python -m arena study watch --dry-run`
+- **설치·제거**
+  - 설치: `infra/arena/watch/install-launchd.sh`
+  - 제거: `launchctl bootout gui/$(id -u)/com.strader.arena-watch`
+  - 로그: `~/Library/Logs/arena-watch.log`
+- **한계**: 이 Mac이 켜져 있고 로그인된 상태여야 한다. AWS 기본 프로필과 `gh` 인증을 사용한다.
+- **실험 세션에 권장하는 것**: 실험 폴더에 `study.json`(4.1 형식)을 함께 쓰면 차원 이름·라벨·기본 화면을 직접 정할 수 있다.

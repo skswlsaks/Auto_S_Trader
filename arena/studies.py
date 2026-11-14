@@ -94,14 +94,73 @@ def _adapter(folder: Path) -> dict | None:
     return None
 
 
+# ---------- generic inference for experiments without study.json or an adapter ----------
+RETURN_COLS = ("net", "net_return", "realized_net_return")
+DATE_COLS = ("D", "day", "date")
+# known condition/model columns, in display order; "aggregate" = partitions one strategy's trades
+DIM_HINTS = [("entry_variant", "진입 방식", False), ("variant", "진입 방식", False), ("policy", "청산 정책", False),
+             ("exit_policy", "청산 정책", False), ("mode", "진입 모드", False), ("method", "청산 방식", False),
+             ("scope", "시간대", False), ("kind", "진입 시점 종류", True), ("pop", "모집단", False),
+             ("gate_ok", "국면 게이트", True), ("risk_flag", "위험 표시", True), ("period", "기간", True)]
+BOOL_LABELS = {"gate_ok": {"True": "국면 통과", "False": "국면 미통과"}, "risk_flag": {"True": "위험 표시 있음", "False": "위험 표시 없음"}}
+
+
+def infer_spec(folder: Path) -> dict | None:
+    folder = Path(folder)
+    if not (folder / "trades.parquet").exists():
+        return None
+    cols = pd.read_parquet(folder / "trades.parquet").columns
+    df = pd.read_parquet(folder / "trades.parquet", columns=[c for c in cols if c in {*RETURN_COLS, *DATE_COLS, "status", *(h[0] for h in DIM_HINTS)}])
+    ret = next((c for c in RETURN_COLS if c in df), None)
+    date = next((c for c in DATE_COLS if c in df), None)
+    if not ret or not date:
+        return None
+    if "status" in df:
+        df = df[df["status"] == "ok"]
+    proto = json.loads((folder / "protocol.json").read_text()) if (folder / "protocol.json").exists() else {}
+    dims, seen_labels = [], set()
+    for key, label, agg in DIM_HINTS:
+        if key in df and 2 <= df[key].astype(str).nunique() <= 30 and label not in seen_labels:
+            d = {"key": key, "label": label, "aggregate": agg}
+            if key == "period":
+                d["labels"] = PERIOD_LABELS
+            elif key in BOOL_LABELS:
+                d["labels"] = BOOL_LABELS[key]
+            elif key in ("policy", "exit_policy"):
+                d["labels"] = {k: POLICY_LABELS.get(k, k) for k in df[key].astype(str).unique()}
+            dims.append(d)
+            seen_labels.add(label)
+    if not dims:
+        return None
+    kind, version = folder.parent.name, folder.name
+    model = [d["key"] for d in dims if not d["aggregate"]]
+    rows = model[0] if model else dims[0]["key"]
+    cols_ = next((k for k in ("policy", "exit_policy", "period", "scope") if k in {d["key"] for d in dims} and k != rows), None)
+    fixed = {d["key"]: (ALL if d["aggregate"] else str(sorted(df[d["key"]].astype(str).unique())[0])) for d in dims if d["key"] not in (rows, cols_)}
+    if "period" in fixed and "post" in set(df["period"].astype(str)):
+        fixed["period"] = "post"
+    entries = proto.get("entries") if isinstance(proto.get("entries"), dict) else {}
+    return {"schema": SCHEMA, "study_id": f"{kind}-{version}", "source": f"model-research/{kind}/{version}",
+            "title": proto.get("title") or f"{kind} ({proto.get('version') or version})",
+            "purpose": proto.get("purpose") or (proto.get("universe") if isinstance(proto.get("universe"), str) else "") or "자동 등록된 조건 실험",
+            "trades": "trades.parquet", "protocol_version": proto.get("version"), "inferred": True,
+            "measure": {"return": ret, "date": date, "symbol": "symbol" if "symbol" in cols else None,
+                        "entry": "entry" if "entry" in cols else None, "stop": "stop" if "stop" in cols else None,
+                        "order": [c for c in (date, "signal_minute", "p0_minute") if c in cols],
+                        "exit_reason": "reason" if "reason" in cols else None, "filter": {"status": "ok"} if "status" in cols else {}},
+            "dimensions": dims, "defaults": {"rows": rows, "cols": cols_, "fixed": fixed},
+            "entry_descriptions": {k: v for k, v in entries.items() if isinstance(v, str)},
+            "locked_holdout": (folder / "holdout-lock.json").exists()}
+
+
 def load_spec(folder: Path) -> dict:
     folder = Path(folder)
     if (folder / "study.json").exists():
         spec = json.loads((folder / "study.json").read_text())
     else:
-        spec = _adapter(folder)
+        spec = _adapter(folder) or infer_spec(folder)
     if not spec:
-        raise SystemExit(f"{folder}: no study.json and no built-in adapter")
+        raise SystemExit(f"{folder}: no study.json, no adapter, and the trade table could not be interpreted")
     return spec
 
 
