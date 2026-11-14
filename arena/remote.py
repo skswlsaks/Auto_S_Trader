@@ -88,6 +88,11 @@ class FolderBackend(Backend):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(src, target)
 
+    def download_prefix(self, prefix, dest):
+        src = self.root / prefix
+        if src.exists():
+            shutil.copytree(src, dest, dirs_exist_ok=True)
+
     def download_runs(self, dest):
         for rid in self.list_runs():
             shutil.copytree(self.root / "runs" / rid, dest / rid, dirs_exist_ok=True)
@@ -116,6 +121,10 @@ class S3Backend(Backend):
 
     def put_file(self, src, dest):
         self._aws("cp", "--only-show-errors", str(src), f"{self.url}/{dest}")
+
+    def download_prefix(self, prefix, dest):
+        Path(dest).mkdir(parents=True, exist_ok=True)
+        self._aws("sync", "--only-show-errors", f"{self.url}/{prefix}", str(dest))
 
     def download_runs(self, dest):
         self._aws("sync", "--only-show-errors", f"{self.url}/runs", str(dest))
@@ -195,9 +204,21 @@ def record_reproduction(run_id: str, report_path: Path, remote: str):
 
 def pull(remote: str, runs_dir: Path = RUNS) -> int:
     runs_dir.mkdir(parents=True, exist_ok=True)
-    backend(remote).download_runs(runs_dir)
-    return len(backend(remote).list_runs())
+    b = backend(remote)
+    b.download_runs(runs_dir)
+    b.download_prefix("studies", runs_dir.parent / "studies")
+    b.download_prefix("conditions", runs_dir.parent / "conditions")
+    return len(b.list_runs())
 
 
-def publish_site(remote: str, site_dir: Path = SITE):
-    backend(remote).upload_dir(site_dir, "site")
+def publish_site(remote: str, site_dir: Path = SITE, data_only: bool = False):
+    b = backend(remote)
+    if data_only:
+        b.upload_dir(site_dir / "data", "site/data")
+    else:
+        b.upload_dir(site_dir, "site")
+
+
+def push_conditions(remote: str, cond_dir: Path):
+    if cond_dir.exists():
+        backend(remote).upload_dir(cond_dir, "conditions")

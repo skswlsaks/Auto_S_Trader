@@ -32,8 +32,13 @@ def main():
     pl.add_argument("--remote")
     pb = sub.add_parser("publish", help="upload the built dashboard to <remote>/site")
     pb.add_argument("--remote")
+    pb.add_argument("--data-only", action="store_true", help="upload only site/data (scheduled refresh)")
     ls = sub.add_parser("remote-ls", help="list runs in the shared store")
     ls.add_argument("--remote")
+    st = sub.add_parser("study", help="condition x model experiment grids")
+    st.add_argument("action", choices=["add", "submit", "build", "list"])
+    st.add_argument("folders", nargs="*", help="experiment folders (read only), e.g. outputs/model-research/entry-gate/20261114-v1")
+    st.add_argument("--remote")
     s = sub.add_parser("serve", help="serve dashboard")
     s.add_argument("--port", type=int, default=8765)
     a = p.parse_args()
@@ -61,7 +66,8 @@ def main():
     elif a.cmd == "build":
         from .build import build
         d = build()
-        print(json.dumps({"runs": len(d["runs"]), "rejected": d["rejected"], "site": str(SITE)}, ensure_ascii=False))
+        print(json.dumps({"runs": len(d["runs"]), "studies": len(d["studies"]), "lab_sources": len(d["lab"]),
+                          "rejected": d["rejected"], "site": str(SITE)}, ensure_ascii=False))
     elif a.cmd == "reproduce":
         import os
         from .reproduce import reproduce
@@ -89,13 +95,32 @@ def main():
         elif a.cmd == "pull":
             print(f"pulled {rm.pull(url)} runs from {url}")
         elif a.cmd == "publish":
-            rm.publish_site(url)
+            rm.publish_site(url, data_only=a.data_only)
+            from .store import OUT
+            rm.push_conditions(url, OUT / "conditions")
             print(f"published dashboard to {url}/site")
         else:
             b = rm.backend(url)
             for rid in b.list_runs():
                 sub_ = b.read_json(rid, "submission.json") or {}
                 print(f"{rid:48s} {sub_.get('submitted_by', '?'):20s} {sub_.get('submitted_at', '')}")
+    elif a.cmd == "study":
+        from . import studies
+        if a.action in ("add", "submit"):
+            for f in a.folders:
+                dest = studies.add_local(f)
+                print(f"added {dest.name}")
+                if a.action == "submit":
+                    from . import remote as rm
+                    url = rm.remote_from_env(a.remote)
+                    rm.backend(url).upload_dir(dest, f"studies/{dest.name}")
+                    print(f"submitted to {url}/studies/{dest.name}")
+        elif a.action == "build":
+            for s_ in studies.build_all(SITE / "data" / "studies"):
+                print(s_["study_id"], s_["n_trades"], "cells", s_["trials"], "significant", s_["significant_cells"])
+        else:
+            for p in sorted(studies.STUDIES.iterdir()) if studies.STUDIES.exists() else []:
+                print(p.name)
     elif a.cmd == "serve":
         handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(SITE))
         print(f"http://localhost:{a.port}")

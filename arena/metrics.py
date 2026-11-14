@@ -87,6 +87,23 @@ def score(trades: list, track: dict, split: str) -> dict:
         "min_trades": n >= gates.get("min_trades", 0),
         "min_active_days": active_days >= gates.get("min_active_days", 0),
     }
+    from .metrics_ext import extended
+
+    def _minutes(t):
+        try:
+            return (datetime.fromisoformat(t["exit_at"]) - datetime.fromisoformat(t["entry_at"])).total_seconds() / 60
+        except (TypeError, ValueError):
+            return float("nan")
+
+    days_sorted = sorted(daily)
+    ext = extended(
+        rets, [t["exit_at"] for t in closed], [_day(t["entry_at"]) for t in closed],
+        [daily[d] for d in days_sorted], days_sorted, n, tol=tol,
+        symbols=[t.get("symbol") for t in closed], hold_minutes=[_minutes(t) for t in closed],
+        risk=([(t["entry_price"] - t["stop_price"]) / t["entry_price"] if t.get("entry_price") and t.get("stop_price") else float("nan") for t in closed]
+              if any(t.get("stop_price") for t in closed) else None),
+        active_days=len(set(days_all)))
+    ext.pop("_ci95_np", None)
     hist_edges = [x / 100 for x in range(-4, 9)]  # -4% .. +8% in 1% bins
     hist = [0] * (len(hist_edges) + 1)
     for r in rets:
@@ -116,6 +133,7 @@ def score(trades: list, track: dict, split: str) -> dict:
         "curve": curve,
         "return_hist": {"edges": hist_edges, "counts": hist},
         "exit_reasons": _count(t.get("exit_reason") or ("unclosed" if not t["complete"] else "unknown") for t in trades),
+        **ext,
     }
 
 

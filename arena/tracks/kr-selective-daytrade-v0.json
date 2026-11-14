@@ -32,5 +32,17 @@
       "min_trades": 100,
       "min_active_days": 40
     }
+  },
+  "baseline_pool": {
+    "template": "sel-v2.current.{exit_policy}.{exit_short}{suffix}",
+    "default": {
+      "exit_policy": "after_tp3",
+      "exit_short": "sys"
+    },
+    "suffix": {
+      "dev": "",
+      "dev-late": "@late"
+    },
+    "note": "같은 청산 방식으로 모든 후보에 진입한 run에서 같은 수만큼 무작위로 고른 분포와 비교한다."
   }
 }
