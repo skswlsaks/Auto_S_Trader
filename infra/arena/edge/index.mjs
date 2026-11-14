@@ -7,18 +7,41 @@ const ID_COOKIE = "arena_id";
 const STATE_COOKIE = "arena_state";
 let cfg, jwks;
 
+const TIMEOUT_MS = 2500; // viewer-request functions are capped at 5 s and 128 MB
+
+// SSM GetParameter over HTTPS with a hand-made SigV4 signature. Importing the AWS SDK costs seconds
+// at 128 MB, which made cold starts time out (503). Credentials come from the Lambda role env vars.
+const hmac = (key, data) => crypto.createHmac("sha256", key).update(data).digest();
+const sha256hex = data => crypto.createHash("sha256").update(data).digest("hex");
+
+export function signSsmRequest(name, env = process.env, now = new Date()) {
+  const region = "us-east-1", host = `ssm.${region}.amazonaws.com`, body = JSON.stringify({ Name: name });
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, ""), day = amzDate.slice(0, 8);
+  const headers = { "content-type": "application/x-amz-json-1.1", host, "x-amz-date": amzDate, "x-amz-target": "AmazonSSM.GetParameter" };
+  if (env.AWS_SESSION_TOKEN) headers["x-amz-security-token"] = env.AWS_SESSION_TOKEN;
+  const names = Object.keys(headers).sort();
+  const canonical = ["POST", "/", "", names.map(k => `${k}:${headers[k]}\n`).join(""), names.join(";"), sha256hex(body)].join("\n");
+  const scope = `${day}/${region}/ssm/aws4_request`;
+  const toSign = ["AWS4-HMAC-SHA256", amzDate, scope, sha256hex(canonical)].join("\n");
+  const key = ["aws4_request"].reduce((k, part) => hmac(k, part), hmac(hmac(hmac(`AWS4${env.AWS_SECRET_ACCESS_KEY}`, day), region), "ssm"));
+  headers.authorization = `AWS4-HMAC-SHA256 Credential=${env.AWS_ACCESS_KEY_ID}/${scope}, SignedHeaders=${names.join(";")}, Signature=${crypto.createHmac("sha256", key).update(toSign).digest("hex")}`;
+  delete headers.host; // fetch sends the same Host; it is a forbidden request header
+  return { url: `https://${host}/`, init: { method: "POST", headers, body } };
+}
+
 async function config() {
   if (!cfg) {
-    const { SSMClient, GetParameterCommand } = await import("@aws-sdk/client-ssm"); // bundled in the Lambda Node.js runtime
-    const r = await new SSMClient({ region: "us-east-1" }).send(new GetParameterCommand({ Name: PARAM }));
-    cfg = JSON.parse(r.Parameter.Value); // { region, userPoolId, clientId, domain }
+    const { url, init } = signSsmRequest(PARAM);
+    const r = await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    if (!r.ok) throw new Error(`ssm ${r.status}`);
+    cfg = JSON.parse((await r.json()).Parameter.Value); // { region, userPoolId, clientId, domain }
   }
   return cfg;
 }
 
 async function keys(c, refresh = false) {
   if (!jwks || refresh) {
-    const r = await fetch(`https://cognito-idp.${c.region}.amazonaws.com/${c.userPoolId}/.well-known/jwks.json`);
+    const r = await fetch(`https://cognito-idp.${c.region}.amazonaws.com/${c.userPoolId}/.well-known/jwks.json`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
     const body = await r.json();
     jwks = Object.fromEntries(body.keys.map(k => [k.kid, crypto.createPublicKey({ key: k, format: "jwk" })]));
   }
@@ -67,6 +90,15 @@ function respond(status, { location, cookies = [], body, type = "text/plain; cha
 }
 
 export async function handler(event, deps = {}) {
+  try {
+    return await route(event, deps);
+  } catch (err) {
+    console.error("auth error", err && err.message);
+    return respond(503, { body: "로그인 서비스에 일시적으로 연결하지 못했습니다. 잠시 후 새로고침하세요." });
+  }
+}
+
+async function route(event, deps) {
   const req = event.Records[0].cf.request;
   const c = deps.config || (await config());
   const http = deps.fetch || fetch;
@@ -86,6 +118,7 @@ export async function handler(event, deps = {}) {
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ grant_type: "authorization_code", client_id: c.clientId, code: qs.get("code"),
                                   redirect_uri: redirectUri, code_verifier: st.verifier }).toString(),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (!r.ok) return respond(502, { body: "토큰 교환에 실패했습니다. 다시 시도하세요." });
     const t = await r.json();

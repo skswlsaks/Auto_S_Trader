@@ -75,3 +75,21 @@ test("verify checks RS256 signature, issuer, audience, token_use and expiry", as
     globalThis.fetch = realFetch;
   }
 });
+
+test("config failures answer fast with 503 instead of hitting the 5 s edge timeout", async () => {
+  const t0 = Date.now();
+  const r = await handler(ev("/"), { get config() { throw new Error("ssm down"); } });
+  assert.equal(r.status, "503");
+  assert.ok(Date.now() - t0 < 500);
+});
+
+test("SigV4 request for SSM is signed with the role session token", async () => {
+  const { signSsmRequest } = await import("./index.mjs");
+  const env = { AWS_ACCESS_KEY_ID: "AKIDEXAMPLE", AWS_SECRET_ACCESS_KEY: "secret", AWS_SESSION_TOKEN: "tok" };
+  const { url, init } = signSsmRequest("/p", env, new Date("2026-11-14T00:00:00Z"));
+  assert.equal(url, "https://ssm.us-east-1.amazonaws.com/");
+  assert.equal(init.headers["x-amz-target"], "AmazonSSM.GetParameter");
+  assert.equal(init.headers["x-amz-security-token"], "tok");
+  assert.match(init.headers.authorization, /^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\/20261114\/us-east-1\/ssm\/aws4_request, SignedHeaders=content-type;host;x-amz-date;x-amz-security-token;x-amz-target, Signature=[0-9a-f]{64}$/);
+  assert.equal(signSsmRequest("/p", env, new Date("2026-11-14T00:00:00Z")).init.headers.authorization, init.headers.authorization);
+});
