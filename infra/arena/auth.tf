@@ -59,17 +59,34 @@ resource "aws_cognito_user_pool_client" "web" {
 }
 
 # Lambda@Edge cannot use env vars; the function reads this at cold start. Breaks the
-# CloudFront -> Lambda -> app client -> CloudFront dependency cycle.
-resource "aws_ssm_parameter" "auth_config" {
-  provider = aws.us_east_1
-  name     = "/${var.name}/auth-config"
-  type     = "String"
-  value = jsonencode({
+# CloudFront -> Lambda -> app client -> CloudFront dependency cycle. The signing keys (JWKS) are
+# included so a cold start makes a single call. Copies: us-east-1 (fallback) and the home region,
+# which is where edge replicas serving the team run.
+data "http" "jwks" {
+  url = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.arena.id}/.well-known/jwks.json"
+}
+
+locals {
+  auth_config = jsonencode({
     region     = var.region
     userPoolId = aws_cognito_user_pool.arena.id
     clientId   = aws_cognito_user_pool_client.web.id
     domain     = "${aws_cognito_user_pool_domain.arena.domain}.auth.${var.region}.amazoncognito.com"
+    jwks       = jsondecode(data.http.jwks.response_body)
   })
+}
+
+resource "aws_ssm_parameter" "auth_config" {
+  provider = aws.us_east_1
+  name     = "/${var.name}/auth-config"
+  type     = "String"
+  value    = local.auth_config
+}
+
+resource "aws_ssm_parameter" "auth_config_home" {
+  name  = "/${var.name}/auth-config"
+  type  = "String"
+  value = local.auth_config
 }
 
 # ---------- Lambda@Edge viewer-request auth ----------
@@ -100,7 +117,7 @@ resource "aws_iam_role_policy" "edge" {
       {
         Effect   = "Allow"
         Action   = ["ssm:GetParameter"]
-        Resource = aws_ssm_parameter.auth_config.arn
+        Resource = [aws_ssm_parameter.auth_config.arn, aws_ssm_parameter.auth_config_home.arn]
       },
       {
         Effect   = "Allow"

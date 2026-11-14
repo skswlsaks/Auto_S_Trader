@@ -14,8 +14,8 @@ const TIMEOUT_MS = 2500; // viewer-request functions are capped at 5 s and 128 M
 const hmac = (key, data) => crypto.createHmac("sha256", key).update(data).digest();
 const sha256hex = data => crypto.createHash("sha256").update(data).digest("hex");
 
-export function signSsmRequest(name, env = process.env, now = new Date()) {
-  const region = "us-east-1", host = `ssm.${region}.amazonaws.com`, body = JSON.stringify({ Name: name });
+export function signSsmRequest(name, env = process.env, now = new Date(), region = "us-east-1") {
+  const host = `ssm.${region}.amazonaws.com`, body = JSON.stringify({ Name: name });
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, ""), day = amzDate.slice(0, 8);
   const headers = { "content-type": "application/x-amz-json-1.1", host, "x-amz-date": amzDate, "x-amz-target": "AmazonSSM.GetParameter" };
   if (env.AWS_SESSION_TOKEN) headers["x-amz-security-token"] = env.AWS_SESSION_TOKEN;
@@ -29,21 +29,35 @@ export function signSsmRequest(name, env = process.env, now = new Date()) {
   return { url: `https://${host}/`, init: { method: "POST", headers, body } };
 }
 
+// The parameter is written to us-east-1 and to the team's home region; read the copy in the region this
+// edge replica runs in first (short TLS round trips), then fall back to us-east-1.
 async function config() {
   if (!cfg) {
-    const { url, init } = signSsmRequest(PARAM);
-    const r = await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
-    if (!r.ok) throw new Error(`ssm ${r.status}`);
-    cfg = JSON.parse((await r.json()).Parameter.Value); // { region, userPoolId, clientId, domain }
+    const regions = [...new Set([process.env.AWS_REGION, "us-east-1"].filter(Boolean))];
+    let last;
+    for (const region of regions) {
+      try {
+        const { url, init } = signSsmRequest(PARAM, process.env, new Date(), region);
+        const r = await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+        if (!r.ok) throw new Error(`ssm ${region} ${r.status}`);
+        cfg = JSON.parse((await r.json()).Parameter.Value); // { region, userPoolId, clientId, domain, jwks }
+        if (cfg.jwks && !jwks) jwks = toKeys(cfg.jwks);
+        return cfg;
+      } catch (err) {
+        last = err;
+      }
+    }
+    throw last;
   }
   return cfg;
 }
 
+const toKeys = body => Object.fromEntries(body.keys.map(k => [k.kid, crypto.createPublicKey({ key: k, format: "jwk" })]));
+
 async function keys(c, refresh = false) {
   if (!jwks || refresh) {
     const r = await fetch(`https://cognito-idp.${c.region}.amazonaws.com/${c.userPoolId}/.well-known/jwks.json`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
-    const body = await r.json();
-    jwks = Object.fromEntries(body.keys.map(k => [k.kid, crypto.createPublicKey({ key: k, format: "jwk" })]));
+    jwks = toKeys(await r.json()); // only on unknown kid (key rotation) or when config carried no keys
   }
   return jwks;
 }
