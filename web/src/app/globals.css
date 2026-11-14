@@ -1,0 +1,114 @@
+@import "tailwindcss";
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Model Arena tokens. Light is the reference; dark is stepped separately (not an automatic flip).
+   Series colours are the validated categorical slots 1-4 (CVD-safe in adjacent order). */
+:root {
+  color-scheme: light;
+  --paper: #f5f6f8;
+  --panel: #ffffff;
+  --sunken: #eef0f4;
+  --ink: #18233a;
+  --ink-2: #5a6479;
+  --ink-3: #8a93a6;
+  --rule: #dce0e7;
+  --rule-2: #e9ecf1;
+  --accent: #3949c9;
+  --accent-soft: #e8eafb;
+  --pass: #1a7f4b;
+  --pass-soft: #e3f3ea;
+  --warn: #9a6512;
+  --warn-soft: #fbf0dc;
+  --fail: #c2362f;
+  --fail-soft: #fbe6e4;
+  --band: #c9ceda;
+  --zero: #8a93a6;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --div-neg: #c2362f;
+  --div-mid: #eef0f4;
+  --div-pos: #1a7f4b;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #0f131b;
+  --panel: #151a24;
+  --sunken: #1b2130;
+  --ink: #e4e8f0;
+  --ink-2: #a3acbe;
+  --ink-3: #737d92;
+  --rule: #283040;
+  --rule-2: #1f2633;
+  --accent: #8d99ff;
+  --accent-soft: #232a4d;
+  --pass: #5cc98a;
+  --pass-soft: #163323;
+  --warn: #e0ad55;
+  --warn-soft: #3a2c14;
+  --fail: #f07a72;
+  --fail-soft: #3d1c1a;
+  --band: #3a4357;
+  --zero: #737d92;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --div-neg: #e0645c;
+  --div-mid: #1b2130;
+  --div-pos: #4fbf7f;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-panel: var(--panel);
+  --color-sunken: var(--sunken);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-rule: var(--rule);
+  --color-rule-2: var(--rule-2);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-pass: var(--pass);
+  --color-pass-soft: var(--pass-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-fail: var(--fail);
+  --color-fail-soft: var(--fail-soft);
+  --color-band: var(--band);
+  --font-sans: var(--font-plex), "Apple SD Gothic Neo", system-ui, sans-serif;
+}
+
+html, body { background: var(--paper); color: var(--ink); }
+body { font-family: var(--font-sans); font-size: 14px; line-height: 1.5; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+::selection { background: var(--accent-soft); }
+
+/* table */
+.t-board { border-collapse: separate; border-spacing: 0; width: 100%; }
+.t-board th { position: sticky; top: 0; z-index: 2; background: var(--panel); font-weight: 500; font-size: 12px; color: var(--ink-2); text-align: right; white-space: nowrap; border-bottom: 1px solid var(--rule); padding: 0; }
+.t-board th > .th { padding: 8px 10px; }
+.t-board th button { all: unset; display: block; box-sizing: border-box; width: 100%; padding: 8px 10px; cursor: pointer; }
+.t-board th button:hover { color: var(--ink); }
+.t-board th button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.t-board th.l, .t-board td.l { text-align: left; }
+.t-board td { padding: 7px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--rule-2); vertical-align: middle; }
+.t-board tbody tr { cursor: pointer; }
+.t-board tbody tr:hover td { background: var(--sunken); }
+.t-board tbody tr[data-active="true"] td { background: var(--accent-soft); }
+.t-board .sub { color: var(--ink-3); font-size: 12px; }
+
+/* sheet (Radix dialog as side panel) */
+.sheet-overlay { position: fixed; inset: 0; background: rgba(15, 19, 27, .28); z-index: 40; }
+.sheet-content { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); background: var(--panel); border-left: 1px solid var(--rule); z-index: 41; overflow: auto; box-shadow: -12px 0 32px rgba(24, 35, 58, .12); }
+@media (prefers-reduced-motion: no-preference) {
+  .sheet-content[data-state="open"] { animation: sheet-in .18s ease-out; }
+  @keyframes sheet-in { from { transform: translateX(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+}
+.tooltip-content { background: var(--panel); color: var(--ink); border: 1px solid var(--rule); border-radius: 4px; padding: 7px 10px; font-size: 12px; max-width: 320px; box-shadow: 0 6px 20px rgba(24, 35, 58, .14); z-index: 60; line-height: 1.45; }
+.select-content { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; box-shadow: 0 8px 24px rgba(24, 35, 58, .14); z-index: 60; overflow: hidden; max-height: 360px; }
+.select-item { padding: 6px 28px 6px 10px; font-size: 13px; cursor: pointer; outline: none; position: relative; border-radius: 4px; }
+.select-item[data-highlighted] { background: var(--sunken); }
+.select-item[data-state="checked"] { color: var(--accent); font-weight: 600; }

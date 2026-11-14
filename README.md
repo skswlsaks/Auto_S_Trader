@@ -10,7 +10,8 @@
 - [모델 학습 방법과 Mac 최적화](MODEL_METHODS.md): 강의 이미지 근거, 뒤틀림 정량화, 라벨링, 비교 실험과 로컬 추론.
 - [로컬 모델 실행과 저장 위치](MODEL_RUNBOOK.md): 자격 증명, 수집·학습·평가·상주 추론 명령, 구현 범위와 제한.
 - 이 README: 실행·복구·운영 방법과 모의 체결의 제약.
-- [Model Arena 기획·표준](ARENA_PLAN.md): 팀 공동 모델 평가 표준, 비교 대시보드(`arena/`), 강화학습 환경.
+- [Model Arena 기획·표준](ARENA_PLAN.md): 팀 공동 모델 평가 표준, 평가 엔진(`arena/`), 강화학습 환경.
+- [Model Arena 웹](web/README.md): Next.js 대시보드(모델 순위·비교·조건 실험·조합 실험실). 설계는 [WEB_PLAN.md](WEB_PLAN.md).
 - [Model Arena AWS 배포](infra/arena/README.md): 공유 run 저장소(S3), Cognito 로그인 대시보드(CloudFront), GitHub Actions 자동 배포. 기반 리소스는 [infra/bootstrap](infra/bootstrap/README.md).
 
 설계 문서의 목표 구성은 배포 완료 상태를 뜻하지 않습니다. 현재 기록은 주요 판단과 행동을 재생하는 수준이며 모든 관망 사유·오류·증권사 원본 메시지의 완전한 감사 기록은 아닙니다.

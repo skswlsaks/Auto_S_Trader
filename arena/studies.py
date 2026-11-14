@@ -186,12 +186,14 @@ def build_study(folder: Path, out_dir: Path) -> dict:
                 metrics, detail = _cell_metrics(g, spec, calendar)
                 cells.append({"id": cid, "key": key, "base": not collapsed, **metrics})
                 details[cid] = detail
+    # Multiple-testing family = every cell a user can look at (base cells and "all" marginals), which is
+    # more conservative than base cells alone.
     base = [c for c in cells if c["base"]]
-    q = bh_qvalues({c["id"]: c["p_value_mean_gt0"] for c in base})
-    srs = [c.get("sr_daily") for c in base]
+    q = bh_qvalues({c["id"]: c["p_value_mean_gt0"] for c in cells})
+    srs = [c.get("sr_daily") for c in cells]
     for c in cells:
         c["q_value"] = q.get(c["id"])
-        c["significant"] = bool(c["base"] and c["q_value"] is not None and c["q_value"] < 0.05 and c["mean"] > 0)
+        c["significant"] = bool(c["q_value"] is not None and c["q_value"] < 0.05 and c["mean"] > 0)
         c["deflated_sharpe"] = deflated_sharpe(c.get("sr_daily"), c.get("t_days"), c.get("skew_daily"), c.get("kurt_daily"), srs)
     best = max((c for c in base if c["n"] >= 30), key=lambda c: c["mean"], default=None)
     sid = spec["study_id"]
@@ -200,7 +202,7 @@ def build_study(folder: Path, out_dir: Path) -> dict:
         "updated_at": datetime.fromtimestamp((folder / spec.get("trades", "trades.parquet")).stat().st_mtime, timezone.utc).isoformat(timespec="seconds"),
         "built_at": now(), "n_trades": int(len(df)), "n_days": int(len(calendar)),
         "first_day": calendar[0] if len(calendar) else None, "last_day": calendar[-1] if len(calendar) else None,
-        "trials": len(base), "significant_cells": sum(c["significant"] for c in cells),
+        "trials": len(cells), "base_cells": len(base), "significant_cells": sum(c["significant"] for c in cells),
         "best_cell": {"id": best["id"], "key": best["key"], "mean": best["mean"], "n": best["n"], "q_value": best["q_value"]} if best else None,
         "has_report": (folder / "REPORT.md").exists(),
         "cells": cells,

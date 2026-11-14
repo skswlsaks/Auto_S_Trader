@@ -1,6 +1,6 @@
 # Model Arena 웹 v2 계획 — Next.js, 차트 라이브러리, 지표 확장, 조건 실험 페이지
 
-작성: 2026-11-14. 상태: **계획(구현 전)**. 승인 후 단계별로 진행한다.
+작성: 2026-11-14. 상태: **P1–P4 구현 완료(2026-11-14)**. 결과는 맨 아래 "구현 결과" 절.
 
 ## 0. 목표
 
@@ -155,3 +155,22 @@ forest plot은 ECharts custom series로 만든다. 색은 지금 검증을 마�
 1. 차트 라이브러리: **ECharts(추천)** / Recharts / visx / Observable Plot
 2. 실험 갱신: **다른 세션의 제출 명령 + 30분 자동 갱신(추천)** / 제출 명령만
 3. 지표 v2 범위: **3.2 전체(추천)** / 수익의 질·꼬리·낙폭까지만 먼저
+
+## 9. 구현 결과 (2026-11-14)
+
+- **P1 데이터·지표**
+  - `arena/metrics_ext.py`: 지표 v2 약 20개와 유의성 보정(BH q, Deflated Sharpe, 같은 청산 방식 무작위 백분위)을 계산한다.
+  - `arena/studies.py`: arena-study/v0 표준이다. 어댑터 3개를 두었고, 다른 세션 폴더는 읽기만 한다.
+    - entry-gate `summary.csv` 378행, picks-runner 전 행과 **전수 일치**한다(`arena/tests/test_studies.py`).
+    - 연구 세션의 수익 비율 정의(+0.1% 초과)는 별도 지표 `profit_rate_01`로 두었다.
+  - `arena/lab.py`: 조합 실험실 데이터와 조건 라이브러리(전날 코스닥 국면·20일선·등락, 요일, 진입 시간대, 시장, 규칙 단계, 일봉 순위)를 만든다. 모두 진입 전에 아는 정보만 쓴다.
+- **P2·P3 앱**: `web/` Next.js 16 정적 export, ECharts, TanStack Table, Radix.
+  - 조합 실험실 엔진은 Python 셀 값과 일치한다(80셀, `web/tests/engine.test.ts`).
+  - 보정 대상은 화면에 보이는 모든 칸(합계 칸 포함)으로 넓혔다.
+- **P4 배포**
+  - Lambda@Edge가 인증 후 `/경로/` → `index.html`로 보정한다.
+  - CI가 웹을 빌드해 함께 게시한다.
+  - `refresh.yml`이 30분마다 S3의 run·실험·조건으로 데이터만 다시 게시한다.
+  - 팀 IAM에 `studies/*`, `conditions/*`를 추가했다.
+- **다른 세션이 결과를 올리는 방법**: `uv run python -m arena study submit <실험 폴더>`. 폴더에 `study.json`(4.1 형식)이 있으면 어댑터 없이 올라간다.
+- **미구현**: 셀을 Arena run으로 승격하는 명령은 보류했다. 실험마다 모집단이 달라 기존 트랙과 같은 순위표에 넣으면 공정하지 않다. 실험별 트랙을 정의한 뒤 추가한다.

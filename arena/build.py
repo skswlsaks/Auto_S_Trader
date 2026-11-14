@@ -65,7 +65,7 @@ def _significance(runs: list[dict], trades_by_id: dict, tracks: dict):
             m["random_pool"] = pool_id if pool else None
 
 
-def build(runs_dir=RUNS, site_dir=SITE, legacy: bool = True) -> dict:
+def build(runs_dir=RUNS, site_dir=SITE) -> dict:
     tracks = load_tracks(TRACKS)
     runs, rejected, trades_by_id = [], {}, {}
     from .reproduce import latest_report
@@ -121,9 +121,11 @@ def build(runs_dir=RUNS, site_dir=SITE, legacy: bool = True) -> dict:
              "studies": study_index, "lab": lab_index}
     (data_dir / "index.json").write_text(json.dumps(index, ensure_ascii=False))
 
-    # app shell: Next.js export when available, else the legacy static page
+    # app shell: the Next.js static export (web/out), when built. Data-only refreshes skip it.
     if WEB_OUT.exists():
         for item in WEB_OUT.iterdir():
+            if item.name == "data":  # dev symlink copied by `next build`; the fresh data is already in place
+                continue
             dest = site_dir / item.name
             if item.is_dir():
                 if dest.exists():
@@ -131,11 +133,4 @@ def build(runs_dir=RUNS, site_dir=SITE, legacy: bool = True) -> dict:
                 shutil.copytree(item, dest)
             else:
                 shutil.copy(item, dest)
-    else:
-        for f in (PKG / "site").iterdir():
-            if f.is_file():
-                shutil.copy(f, site_dir / f.name)
-    if legacy:  # the legacy page reads one combined file; removed once the Next.js app replaces it
-        (site_dir / "data.json").write_text(json.dumps({"generated_at": generated, "tracks": tracks, "runs": runs,
-                                                         "rejected": rejected, "store": store}, ensure_ascii=False))
     return index

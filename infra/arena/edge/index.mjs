@@ -107,6 +107,15 @@ function respond(status, { location, cookies = [], body, type = "text/plain; cha
   return { status: String(status), headers, ...(body ? { body } : {}) };
 }
 
+// Static export with trailingSlash: "/runs/" is stored as "runs/index.html". The S3 (OAC) origin does
+// not resolve directory indexes, so map extension-less paths to their index.html after auth.
+export function withIndex(req) {
+  const last = req.uri.split("/").pop();
+  if (req.uri.endsWith("/")) req.uri += "index.html";
+  else if (!last.includes(".")) req.uri += "/index.html";
+  return req;
+}
+
 export async function handler(event, deps = {}) {
   try {
     return await route(event, deps);
@@ -154,7 +163,7 @@ async function route(event, deps) {
     return respond(200, { type: "text/html; charset=utf-8", body: '<!doctype html><meta charset="utf-8"><p>로그아웃되었습니다. <a href="/">다시 로그인</a></p>' });
   }
 
-  if (jar[ID_COOKIE] && (await (deps.verify || verify)(jar[ID_COOKIE], c))) return req;
+  if (jar[ID_COOKIE] && (await (deps.verify || verify)(jar[ID_COOKIE], c))) return withIndex(req);
 
   if (req.uri.endsWith(".json")) return respond(401, { body: "session expired" }); // fetch() cannot follow a cross-origin login redirect
 

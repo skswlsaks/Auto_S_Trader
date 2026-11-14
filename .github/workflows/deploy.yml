@@ -29,11 +29,18 @@ jobs:
       - run: npm test
       - name: Edge auth tests
         run: node --test infra/arena/edge/index.test.mjs
+      - name: Web app (type check, engine tests, static export)
+        working-directory: web
+        run: |
+          npm ci --ignore-scripts
+          npx tsc --noEmit
+          node --test tests/engine.test.ts
+          npm run build
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --locked
       - name: Python tests
         run: |
-          uv run python -m unittest arena.tests.test_arena arena.tests.test_remote_env arena.tests.test_provenance
+          uv run python -m unittest arena.tests.test_arena arena.tests.test_remote_env arena.tests.test_provenance arena.tests.test_studies
           uv run python -m unittest discover -s modeling/tests -t .
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -75,9 +82,15 @@ jobs:
           terraform apply -input=false tfplan
           echo "ARENA_REMOTE=$(terraform output -raw arena_remote)" >> "$GITHUB_ENV"
           echo "DASHBOARD_URL=$(terraform output -raw dashboard_url)" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Build web app (static export)
+        working-directory: web
+        run: npm ci --ignore-scripts && npm run build
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --locked
-      - name: Rebuild and publish dashboard from shared runs
+      - name: Rebuild and publish dashboard from shared runs and studies
         run: |
           uv run python -m arena pull
           uv run python -m arena build

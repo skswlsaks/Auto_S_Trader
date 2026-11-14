@@ -1,0 +1,36 @@
+name: refresh-data
+
+# Rebuild dashboard data from the shared store (runs, studies, conditions) every 30 minutes so
+# results submitted by other sessions appear without a code push. Publishes site/data only.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-2
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - name: Pull, rebuild, publish data
+        env:
+          ARENA_REMOTE: ${{ vars.ARENA_REMOTE }}
+        run: |
+          uv run python -m arena pull
+          uv run python -m arena build
+          uv run python -m arena publish --data-only
+          echo "### Data refreshed: $(jq -r .generated_at outputs/arena/site/data/index.json)" >> "$GITHUB_STEP_SUMMARY"

@@ -33,7 +33,8 @@ class EntryGateParity(unittest.TestCase):
             self.assertAlmostEqual(c["profit_rate_01"], r.profit_share, places=12)  # their "profit_share" = net > +0.1%
             if not pd.isna(r.pf) and c["profit_factor"] is not None:
                 self.assertAlmostEqual(c["profit_factor"], r.pf, places=9)
-        self.assertEqual(s["trials"], sum(1 for c in s["cells"] if c["base"]))
+        self.assertEqual(s["trials"], len(s["cells"]))
+        self.assertEqual(s["base_cells"], sum(1 for c in s["cells"] if c["base"]))
 
 
 @unittest.skipUnless((PR / "trades.parquet").exists(), "research data not present")

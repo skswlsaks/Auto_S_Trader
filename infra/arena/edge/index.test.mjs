@@ -93,3 +93,16 @@ test("SigV4 request for SSM is signed with the role session token", async () => 
   assert.match(init.headers.authorization, /^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\/20261114\/us-east-1\/ssm\/aws4_request, SignedHeaders=content-type;host;x-amz-date;x-amz-security-token;x-amz-target, Signature=[0-9a-f]{64}$/);
   assert.equal(signSsmRequest("/p", env, new Date("2026-11-14T00:00:00Z")).init.headers.authorization, init.headers.authorization);
 });
+
+test("authenticated page paths map to the exported index.html files", async () => {
+  const { withIndex } = await import("./index.mjs");
+  const u = uri => withIndex({ uri }).uri;
+  assert.equal(u("/"), "/index.html");
+  assert.equal(u("/runs/"), "/runs/index.html");
+  assert.equal(u("/studies/view"), "/studies/view/index.html");
+  assert.equal(u("/data/index.json"), "/data/index.json");
+  assert.equal(u("/_next/static/chunks/app.js"), "/_next/static/chunks/app.js");
+  assert.equal(u("/data/runs/rl.reinforce.s1@late.json"), "/data/runs/rl.reinforce.s1@late.json");
+  const r = await handler(ev("/compare/", { cookie: "arena_id=good" }), { config: c, verify: async () => ({}) });
+  assert.equal(r.uri, "/compare/index.html");
+});

@@ -153,7 +153,7 @@ resource "aws_iam_group_policy" "team" {
       {
         Effect   = "Allow"
         Action   = ["s3:GetObject", "s3:PutObject"]
-        Resource = ["${aws_s3_bucket.arena.arn}/runs/*", "${aws_s3_bucket.arena.arn}/site/*"]
+        Resource = ["${aws_s3_bucket.arena.arn}/runs/*", "${aws_s3_bucket.arena.arn}/site/*", "${aws_s3_bucket.arena.arn}/studies/*", "${aws_s3_bucket.arena.arn}/conditions/*"]
       }
     ]
   })
