@@ -90,8 +90,26 @@ resource "aws_cloudfront_origin_access_control" "site" {
   signing_protocol                  = "sigv4"
 }
 
-data "aws_cloudfront_cache_policy" "disabled" {
-  name = "Managed-CachingDisabled"
+# Short edge cache so CloudFront can compress (gzip/brotli need a caching policy). Auth still runs on
+# every request in the viewer-request Lambda@Edge, before the cache. New data shows within a minute.
+resource "aws_cloudfront_cache_policy" "site" {
+  name        = "${var.name}-site"
+  min_ttl     = 0
+  default_ttl = 60
+  max_ttl     = 300
+  parameters_in_cache_key_and_forwarded_to_origin {
+    enable_accept_encoding_gzip   = true
+    enable_accept_encoding_brotli = true
+    cookies_config {
+      cookie_behavior = "none"
+    }
+    headers_config {
+      header_behavior = "none"
+    }
+    query_strings_config {
+      query_string_behavior = "none"
+    }
+  }
 }
 
 resource "aws_cloudfront_distribution" "site" {
@@ -114,7 +132,7 @@ resource "aws_cloudfront_distribution" "site" {
     allowed_methods        = ["GET", "HEAD"]
     cached_methods         = ["GET", "HEAD"]
     compress               = true
-    cache_policy_id        = data.aws_cloudfront_cache_policy.disabled.id
+    cache_policy_id        = aws_cloudfront_cache_policy.site.id
 
     lambda_function_association {
       event_type   = "viewer-request"
