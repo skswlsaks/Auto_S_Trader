@@ -11,7 +11,7 @@
 - [로컬 모델 실행과 저장 위치](MODEL_RUNBOOK.md): 자격 증명, 수집·학습·평가·상주 추론 명령, 구현 범위와 제한.
 - 이 README: 실행·복구·운영 방법과 모의 체결의 제약.
 - [Model Arena 기획·표준](ARENA_PLAN.md): 팀 공동 모델 평가 표준, 평가 엔진(`arena/`), 강화학습 환경.
-- [Model Arena MCP](MCP.md): 팀원 AI(Claude Code·Desktop·Codex·Cursor)로 순위·실험 조회, 조건 조합 계산, 결과 작성·제출·재현.
+- [Model Arena MCP](MCP.md): 팀원 AI(Claude Code·Desktop·Codex·Cursor)가 Cognito 로그인으로 순위·실험 조회, 조건 조합 계산, 결과 작성·제출. Bedrock AgentCore에서 실행([infra/mcp](infra/mcp/README.md)).
 - [Model Arena 웹](web/README.md): Next.js 대시보드(모델 순위·비교·조건 실험·조합 실험실). 설계는 [WEB_PLAN.md](WEB_PLAN.md).
 - [Model Arena AWS 배포](infra/arena/README.md): 공유 run 저장소(S3), Cognito 로그인 대시보드(CloudFront), GitHub Actions 자동 배포. 기반 리소스는 [infra/bootstrap](infra/bootstrap/README.md).
 
