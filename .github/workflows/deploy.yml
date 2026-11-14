@@ -33,7 +33,7 @@ jobs:
       - run: uv sync --locked
       - name: Python tests
         run: |
-          uv run python -m unittest arena.tests.test_arena arena.tests.test_remote_env
+          uv run python -m unittest arena.tests.test_arena arena.tests.test_remote_env arena.tests.test_provenance
           uv run python -m unittest discover -s modeling/tests -t .
       - uses: hashicorp/setup-terraform@v3
         with:

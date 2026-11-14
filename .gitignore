@@ -106,3 +106,4 @@ crash.log
 backend.hcl
 
 .build/
+/outputs

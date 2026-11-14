@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import random
 
-from ..adapters import TRACK, load_selective, write_with_late
+import json
+
+from ..adapters import SELECTIVE, TRACK, load_selective, write_with_late
+from ..provenance import collect
 from ..store import sha
 
 
@@ -49,4 +52,8 @@ def run(epsilon=0.1, seed=11, prior_n=5):
         "author": "arena example",
         "artifact_hash": sha(params), "params": params,
         "notes": "파이프라인 시연용 온라인 학습. 문맥=(규칙 단계, 시장, 일봉 강도 순위). 전날까지 청산된 보상만 학습.",
-    }, frame, curve)
+    }, frame, curve,
+        artifacts={"q_table.json": json.dumps({"format": "arena/bandit-q-v0", "context": ["rule_stage", "market", "rank<=3"],
+                                                "prior_n": prior_n, "q": {"|".join(map(str, k)): v for k, v in sorted(q.items())}},
+                                               ensure_ascii=False, indent=1).encode()},
+        provenance=collect(["example-rl"], [SELECTIVE / "trades.parquet"]))

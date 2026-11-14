@@ -21,9 +21,10 @@ import tempfile
 from pathlib import Path
 
 from .schema import load_run_dir, load_tracks, validate_run
-from .store import RUNS, SITE, TRACKS, now
+from .store import RUNS, SITE, TRACKS, now, result_sha256
 
 FILES = ("run.json", "trades.json", "curve.json")
+DIRS = ("artifacts", "reproductions")
 
 
 def remote_from_env(explicit: str | None = None) -> str:
@@ -39,6 +40,9 @@ def content_hash(run_dir: Path) -> str:
         p = run_dir / f
         if p.exists():
             h.update(f.encode() + b"\0" + p.read_bytes())
+    if (run_dir / "artifacts").is_dir():
+        for p in sorted((run_dir / "artifacts").iterdir()):
+            h.update(b"artifacts/" + p.name.encode() + b"\0" + p.read_bytes())
     return h.hexdigest()
 
 
@@ -54,6 +58,7 @@ class Backend:
     def list_runs(self) -> list[str]: ...
     def read_json(self, run_id: str, name: str): ...
     def upload_dir(self, src: Path, dest: str): ...
+    def put_file(self, src: Path, dest: str): ...
     def download_runs(self, dest: Path): ...
 
 
@@ -77,6 +82,11 @@ class FolderBackend(Backend):
         if target.exists():
             shutil.rmtree(target)
         tmp.rename(target)  # atomic-ish publish: readers never see half a run
+
+    def put_file(self, src, dest):
+        target = self.root / dest
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(src, target)
 
     def download_runs(self, dest):
         for rid in self.list_runs():
@@ -104,6 +114,9 @@ class S3Backend(Backend):
     def upload_dir(self, src, dest):
         self._aws("cp", "--recursive", "--only-show-errors", str(src), f"{self.url}/{dest}")
 
+    def put_file(self, src, dest):
+        self._aws("cp", "--only-show-errors", str(src), f"{self.url}/{dest}")
+
     def download_runs(self, dest):
         self._aws("sync", "--only-show-errors", f"{self.url}/runs", str(dest))
 
@@ -123,12 +136,19 @@ def submit(run_id: str, remote: str, runs_dir: Path = RUNS, who: str | None = No
         raise SystemExit("validation failed:\n  - " + "\n  - ".join(errors))
     if run["run_id"] != run_id:
         raise SystemExit(f"run.json run_id '{run['run_id']}' != folder '{run_id}'")
-    b, digest = backend(remote), content_hash(src)
+    b, digest, result = backend(remote), content_hash(src), result_sha256(src)
     existing = b.read_json(run_id, "submission.json")
     if existing:
+        same_result = existing.get("result_sha256") == result if existing.get("result_sha256") else _remote_result_matches(b, run_id, src)
+        if not same_result:
+            raise SystemExit(f"run_id '{run_id}' already submitted by {existing['submitted_by']} with a different result; use a new run_id")
         if existing["content_sha256"] == digest:
             return {"status": "unchanged", **existing}
-        raise SystemExit(f"run_id '{run_id}' already submitted by {existing['submitted_by']} with different content; use a new run_id")
+        # same measured result, more evidence (provenance / model artifacts): allowed, original submitter kept
+        receipt = {**existing, "content_sha256": digest, "result_sha256": result,
+                   "enriched_by": who or submitter(), "enriched_at": now()}
+        _upload(b, src, run_id, receipt)
+        return {"status": "enriched", **receipt}
     if run["split"] == "holdout":
         cap = tracks[run["track_id"]].get("holdout_submissions_per_model", 1)
         used = 0
@@ -138,16 +158,39 @@ def submit(run_id: str, remote: str, runs_dir: Path = RUNS, who: str | None = No
                 used += 1
         if used >= cap:
             raise SystemExit(f"holdout cap reached for model '{run['model']['name']}' on {run['track_id']} ({used}/{cap})")
-    receipt = {"run_id": run_id, "submitted_by": who or submitter(), "submitted_at": now(), "content_sha256": digest}
+    receipt = {"run_id": run_id, "submitted_by": who or submitter(), "submitted_at": now(),
+               "content_sha256": digest, "result_sha256": result}
+    _upload(b, src, run_id, receipt)
+    return {"status": "submitted", **receipt}
+
+
+def _remote_result_matches(b: Backend, run_id: str, src: Path) -> bool:
+    """Legacy receipts (no result_sha256): compare the measured result directly."""
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        for f in FILES:
+            obj = b.read_json(run_id, f)
+            if obj is not None:
+                (d / f).write_text(json.dumps(obj, ensure_ascii=False))
+        return (d / "run.json").exists() and result_sha256(d) == result_sha256(src)
+
+
+def _upload(b: Backend, src: Path, run_id: str, receipt: dict):
     with tempfile.TemporaryDirectory() as tmp:
         stage = Path(tmp) / run_id
         stage.mkdir()
         for f in FILES:
             if (src / f).exists():
                 shutil.copy(src / f, stage / f)
+        for d in DIRS:
+            if (src / d).is_dir():
+                shutil.copytree(src / d, stage / d)
         (stage / "submission.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2))
         b.upload_dir(stage, f"runs/{run_id}")
-    return {"status": "submitted", **receipt}
+
+
+def record_reproduction(run_id: str, report_path: Path, remote: str):
+    backend(remote).put_file(report_path, f"runs/{run_id}/reproductions/{report_path.name}")
 
 
 def pull(remote: str, runs_dir: Path = RUNS) -> int:

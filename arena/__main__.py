@@ -17,8 +17,14 @@ def main():
     r = sub.add_parser("train-rl", help="train REINFORCE on early dev, evaluate on dev-late, write run")
     r.add_argument("--seeds", default="1,2,3")
     r.add_argument("--epochs", type=int, default=200)
+    r.add_argument("--lr", type=float, default=0.05)
+    r.add_argument("--l2", type=float, default=1e-3)
     sub.add_parser("validate", help="validate every run against Arena Standard v0")
     sub.add_parser("build", help="score runs and write dashboard data")
+    rp = sub.add_parser("reproduce", help="verify a run can be regenerated (inputs, stored model, retrain at commit)")
+    rp.add_argument("run_ids", nargs="+")
+    rp.add_argument("--no-retrain", action="store_true", help="only check inputs and the stored model")
+    rp.add_argument("--remote", help="also upload the report to the shared store (default: $ARENA_REMOTE if set)")
     sm = sub.add_parser("submit", help="validate and upload local runs to the shared store")
     sm.add_argument("run_ids", nargs="+")
     sm.add_argument("--remote")
@@ -44,7 +50,7 @@ def main():
     elif a.cmd == "train-rl":
         from .rl_train import train
         for s in a.seeds.split(","):
-            path, summary = train(epochs=a.epochs, seed=int(s))
+            path, summary = train(epochs=a.epochs, seed=int(s), lr=a.lr, l2=a.l2)
             print(path.name, json.dumps(summary))
     elif a.cmd == "validate":
         from .build import validate_all
@@ -56,6 +62,24 @@ def main():
         from .build import build
         d = build()
         print(json.dumps({"runs": len(d["runs"]), "rejected": d["rejected"], "site": str(SITE)}, ensure_ascii=False))
+    elif a.cmd == "reproduce":
+        import os
+        from .reproduce import reproduce
+        from .store import RUNS
+        url = a.remote or os.environ.get("ARENA_REMOTE")
+        bad = 0
+        for rid in a.run_ids:
+            rep = reproduce(rid, retrain=not a.no_retrain)
+            mark = {"reproduced": "✓", "partial": "△", "not_reproduced": "✗"}[rep["verdict"]]
+            print(f"{mark} {rid}: {rep['verdict']}")
+            for c in rep["checks"]:
+                print(f"    [{c['status']:4s}] {c['name']}: {c['detail']}")
+            if url:
+                from .remote import record_reproduction
+                latest = sorted((RUNS / rid / "reproductions").glob("*.json"))[-1]
+                record_reproduction(rid, latest, url)
+            bad += rep["verdict"] == "not_reproduced"
+        raise SystemExit(1 if bad else 0)
     elif a.cmd in ("submit", "pull", "publish", "remote-ls"):
         from . import remote as rm
         url = rm.remote_from_env(a.remote)

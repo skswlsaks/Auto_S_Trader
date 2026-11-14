@@ -13,10 +13,10 @@ from arena.store import write_run
 from arena.tests.test_arena import TRACK, trade
 
 
-def _runs(tmp: Path, **over):
+def _runs(tmp: Path, ret=0.01, artifacts=None, **over):
     meta = {"run_id": "r1", "track_id": "t", "split": "dev", "author": "a", "artifact_hash": "h",
             "model": {"name": "m", "family": "rl", "version": "1"}} | over
-    write_run(meta, [trade("2026-01-05", 0.01)], runs_dir=tmp)
+    write_run(meta, [trade("2026-01-05", ret)], runs_dir=tmp, artifacts=artifacts)
 
 
 class FolderRemoteTest(unittest.TestCase):
@@ -39,12 +39,19 @@ class FolderRemoteTest(unittest.TestCase):
         r = remote.submit("r1", str(self.shared), self.local, who="kim")
         self.assertEqual(r["status"], "submitted")
         self.assertEqual(remote.submit("r1", str(self.shared), self.local)["status"], "unchanged")
-        _runs(self.local, notes="changed")
+        _runs(self.local, ret=0.02)  # different measured result under the same id
         with self.assertRaises(SystemExit):
             remote.submit("r1", str(self.shared), self.local)
+        # same result + model file + notes: enrichment keeps the original submitter
+        _runs(self.local, notes="now with model", artifacts={"model.json": b'{"w": [1]}'})
+        r = remote.submit("r1", str(self.shared), self.local, who="lee")
+        self.assertEqual((r["status"], r["submitted_by"], r["enriched_by"]), ("enriched", "kim", "lee"))
         other = self.tmp / "other"
         self.assertEqual(remote.pull(str(self.shared), other), 1)
         self.assertEqual(json.loads((other / "r1" / "submission.json").read_text())["submitted_by"], "kim")
+        self.assertEqual((other / "r1" / "artifacts" / "model.json").read_bytes(), b'{"w": [1]}')
+        listed = json.loads((other / "r1" / "run.json").read_text())["artifacts"]
+        self.assertEqual(listed[0]["name"], "model.json")
 
     def test_invalid_run_is_rejected(self):
         _runs(self.local, model={"name": "m", "family": "nope", "version": "1"})

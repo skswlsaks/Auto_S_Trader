@@ -6,6 +6,10 @@ import numpy as np
 
 from .adapters import TRACK, selective_trades
 from .rl_env import DEFAULT_EXITS, FEATURE_NAMES, SelectiveReplayEnv, build_candidates
+import json
+
+from .adapters import SELECTIVE
+from .provenance import collect
 from .store import sha, write_run
 
 TRAIN = ("2025-10-29", "2026-06-30")
@@ -57,6 +61,11 @@ def train(epochs=200, lr=0.05, seed=3, exits=DEFAULT_EXITS, l2=1e-3):
               "train_window": TRAIN, "eval_window": EVAL, "exits": [list(e) for e in exits], "features": FEATURE_NAMES}
     weights = {f: round(float(v), 4) for f, v in zip(FEATURE_NAMES, w[1] - w[0])}
     frame = ev.taken_frame()
+    model = {"format": "arena/softmax-linear-v0", "algo": params["algo"], "features": FEATURE_NAMES + [],
+             "actions": ["skip"] + ["take:" + "/".join(e) for e in exits], "exits": [list(e) for e in exits],
+             "weights": w.tolist(), "norm_mean": tr.norm[0].tolist(), "norm_std": tr.norm[1].tolist(),
+             "max_per_day": ev.max_per_day, "eval_window": EVAL}
+    command = ["train-rl", "--seeds", str(seed), "--epochs", str(epochs), "--lr", repr(lr), "--l2", repr(l2)]
     path = write_run({
         "run_id": f"rl.reinforce.s{seed}@late",
         "track_id": TRACK, "split": "dev-late",
@@ -66,5 +75,18 @@ def train(epochs=200, lr=0.05, seed=3, exits=DEFAULT_EXITS, l2=1e-3):
         "params": params | {"take_minus_skip_weights": weights},
         "notes": f"{TRAIN[0]}~{TRAIN[1]} 학습 → {EVAL[0]}~{EVAL[1]} 결정론 평가. 청산은 고정 시스템 주문({exits[0][0]}). "
                  "dev-late는 다른 모델 개발에는 노출된 기간이므로 최종 성능 근거가 아니다.",
-    }, selective_trades(frame), curve)
+    }, selective_trades(frame), curve,
+        artifacts={"model.json": json.dumps(model).encode()},
+        provenance=collect(command, [SELECTIVE / "trades.parquet", SELECTIVE / "selection.parquet"]))
     return path, {"eval_taken": len(frame), "eval_candidates": len(ev.c), "eval_return_pp": round(eval_total * 100, 3)}
+
+
+def replay_artifact(run_dir) -> list[dict]:
+    """Re-run the stored model (no training) on its eval window and return the trades it takes."""
+    from pathlib import Path
+    m = json.loads((Path(run_dir) / "artifacts" / "model.json").read_text())
+    exits = tuple(tuple(e) for e in m["exits"])
+    ev = SelectiveReplayEnv(build_candidates(exits=exits), *m["eval_window"],
+                            norm=(np.array(m["norm_mean"]), np.array(m["norm_std"])), max_per_day=m["max_per_day"])
+    rollout(ev, np.array(m["weights"]), greedy=True)
+    return selective_trades(ev.taken_frame())

@@ -3,484 +3,79 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Model Arena · s_trader</title>
-<style>
-.viz-root {
-  color-scheme: light;
-  --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #e2e1dc; --grid: #ebeae6;
-  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #85847f;
-  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
-  --baseline: #a3a29c; --zero: #85847f;
-  --good: #1a7f37; --bad: #c62828; --chip: #ecebe7; --hover: #f0efeb; --accent: #2a78d6;
-}
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) .viz-root {
-    color-scheme: dark;
-    --surface-0: #121211; --surface-1: #1a1a19; --border: #2e2e2c; --grid: #262624;
-    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
-    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
-    --baseline: #6b6a65; --zero: #8f8e86;
-    --good: #57c46b; --bad: #ef6b6b; --chip: #262624; --hover: #222220; --accent: #3987e5;
-  }
-}
-:root[data-theme="dark"] .viz-root {
-  color-scheme: dark;
-  --surface-0: #121211; --surface-1: #1a1a19; --border: #2e2e2c; --grid: #262624;
-  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
-  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
-  --baseline: #6b6a65; --zero: #8f8e86;
-  --good: #57c46b; --bad: #ef6b6b; --chip: #262624; --hover: #222220; --accent: #3987e5;
-}
-* { box-sizing: border-box; }
-body { margin: 0; }
-.viz-root { min-height: 100vh; background: var(--surface-0); color: var(--text-primary);
-  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", system-ui, sans-serif;
-  font-variant-numeric: tabular-nums; }
-header { display: flex; align-items: baseline; gap: 16px; padding: 16px 24px 8px; flex-wrap: wrap; }
-header h1 { font-size: 18px; margin: 0; font-weight: 650; }
-header .sub { color: var(--text-secondary); }
-header .right { margin-left: auto; color: var(--text-muted); font-size: 12px; }
-.bar { display: flex; gap: 8px; align-items: center; padding: 8px 24px 12px; flex-wrap: wrap; }
-select, input[type=search], button { font: inherit; color: var(--text-primary); background: var(--surface-1);
-  border: 1px solid var(--border); border-radius: 6px; padding: 5px 9px; }
-button { cursor: pointer; }
-.chip { background: var(--chip); border: 1px solid transparent; border-radius: 999px; padding: 3px 10px; cursor: pointer; user-select: none; color: var(--text-secondary); }
-.chip[aria-pressed=true] { background: var(--surface-1); border-color: var(--text-secondary); color: var(--text-primary); }
-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 0 24px 32px; }
-.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
-.card h2 { font-size: 14px; margin: 0 0 2px; font-weight: 620; }
-.card .desc { color: var(--text-secondary); font-size: 12px; margin: 0 0 10px; }
-.grid2 { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; }
-@media (max-width: 1000px) { .grid2 { grid-template-columns: 1fr; } }
-.notice { border-left: 3px solid var(--text-muted); padding: 8px 12px; color: var(--text-secondary); background: var(--surface-1); border-radius: 0 8px 8px 0; font-size: 12px; }
-table { border-collapse: collapse; width: 100%; }
-th, td { padding: 6px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); }
-th { color: var(--text-secondary); font-weight: 560; font-size: 12px; cursor: pointer; position: sticky; top: 0; background: var(--surface-1); }
-th:hover { color: var(--text-primary); }
-th.l, td.l { text-align: left; }
-tbody tr { cursor: pointer; }
-tbody tr:hover { background: var(--hover); }
-tbody tr.active { outline: 2px solid var(--accent); outline-offset: -2px; }
-.tablewrap { overflow: auto; max-height: 460px; }
-.ci { color: var(--text-muted); font-size: 11px; }
-.neg { color: var(--text-primary); }
-.badge { display: inline-block; font-size: 11px; border-radius: 4px; padding: 0 6px; border: 1px solid var(--border); color: var(--text-secondary); }
-.badge.holdout { border-color: var(--good); color: var(--good); }
-.fam { font-size: 11px; color: var(--text-secondary); }
-.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; vertical-align: -1px; margin-right: 6px; border: 1px solid var(--border); }
-.ok { color: var(--good); } .no { color: var(--bad); }
-.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
-.legend .line { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: 3px; margin-right: 6px; }
-svg text { fill: var(--text-muted); font-size: 11px; }
-.axis line, .axis path { stroke: var(--grid); }
-.tip { position: fixed; pointer-events: none; background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12); display: none; z-index: 10; min-width: 160px; }
-.tip .row { display: flex; justify-content: space-between; gap: 12px; }
-.kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: 12px; }
-.kv dt { color: var(--text-secondary); } .kv dd { margin: 0; word-break: break-all; }
-.empty { color: var(--text-muted); padding: 30px 0; text-align: center; }
-.mx { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-@media (max-width: 1100px) { .mx { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.mcard { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px 4px; }
-.mcard h3 { font-size: 12px; margin: 0; font-weight: 600; } .mcard .hint { color: var(--text-muted); font-size: 11px; }
-.num { display: inline-flex; width: 16px; height: 16px; border-radius: 50%; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; margin-right: 6px; }
-.metrics4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0 12px; }
-.tile { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
-.tile .k { color: var(--text-secondary); font-size: 11px; } .tile .v { font-size: 18px; font-weight: 620; }
-</style>
+<title>Model Arena</title>
+<script>
+  // apply theme before first paint
+  (function () {
+    var t = localStorage.getItem("arena-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    document.documentElement.dataset.theme = t;
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css">
 </head>
 <body>
-<div class="viz-root">
-  <header>
-    <h1>Model Arena</h1>
-    <span class="sub" id="trackTitle"></span>
-    <span class="right" id="generated"></span>
-    <button id="theme" title="테마 전환">◐</button>
-    <a id="logout" href="/_auth/logout" style="color:var(--text-secondary);font-size:12px;display:none">로그아웃</a>
+  <header class="topbar">
+    <div class="brand"><b>Model Arena</b><span id="trackName"></span></div>
+    <nav class="views" role="tablist" aria-label="보기">
+      <button role="tab" id="view-board" aria-selected="true" aria-controls="boardView">순위</button>
+      <button role="tab" id="view-compare" aria-selected="false" aria-controls="compareView">비교<span class="count" id="compareCount"></span></button>
+    </nav>
+    <div class="spacer"></div>
+    <label class="field"><span class="sr-only">트랙</span><select class="select" id="track"></select></label>
+    <button class="btn icon ghost" id="theme" title="화면 테마 바꾸기" aria-label="화면 테마 바꾸기">◐</button>
+    <a class="btn ghost" id="logout" href="/_auth/logout" hidden>로그아웃</a>
   </header>
-  <div class="bar">
-    <label>트랙 <select id="track"></select></label>
-    <label>구간 <select id="split"></select></label>
-    <span style="width:8px"></span>
-    <span class="chip" data-fam="rule" aria-pressed="true">규칙</span>
-    <span class="chip" data-fam="supervised" aria-pressed="true">지도학습</span>
-    <span class="chip" data-fam="rl" aria-pressed="true">강화학습</span>
-    <span class="chip" data-fam="baseline" aria-pressed="true">기준선</span>
-    <input type="search" id="q" placeholder="run 검색" style="margin-left:8px;width:200px">
-    <span style="margin-left:auto;color:var(--text-muted);font-size:12px">행 체크 = 비교(최대 4) · 행 클릭 = 상세</span>
-  </div>
+
   <main>
-    <div class="notice" id="notice"></div>
-    <section class="card">
-      <h2>순위표</h2>
-      <p class="desc">모든 지표는 제출된 거래 목록으로 플랫폼이 동일하게 계산합니다. 매매 정확도 = 비용 포함 본절 이상 전량 청산 / 전체 진입 (Wilson 95%). 평균 수익률 구간은 거래일 단위 부트스트랩입니다.</p>
-      <div class="tablewrap"><table id="board"><thead></thead><tbody></tbody></table></div>
-    </section>
-    <section class="card">
-      <h2>지표 비교</h2>
-      <p class="desc">체크한 run을 지표별로 나란히 봅니다. 회색 띠 = 같은 구간 무작위 기준선의 최소~최대 범위, 세로선 = 기준값(0 또는 PF 1), 가는 막대 = 95% 구간. ▲ = 체크한 run 중 가장 좋은 값.</p>
-      <div class="legend" id="mxLegend"></div>
-      <div class="mx" id="mx"></div>
-    </section>
-    <div class="grid2">
-      <section class="card">
-        <h2>누적 순수익률 비교</h2>
-        <p class="desc">거래당 1단위, 청산일 기준 단순 합(%p). 실제 계좌 수익률이 아닌 신호 품질 비교용입니다. 회색 점선 = 무작위 기준선.</p>
-        <div class="legend" id="curveLegend"></div>
-        <div id="curve"></div>
-      </section>
-      <section class="card">
-        <h2>모델 지도</h2>
-        <p class="desc">현재 구간의 모든 run을 두 지표로 배치합니다. 점을 클릭하면 비교에 추가·해제됩니다. 빈 원 = 무작위 기준선.</p>
-        <div class="bar" style="padding:0 0 8px">
-          <label>가로 <select id="sx"></select></label><label>세로 <select id="sy"></select></label>
-        </div>
-        <div id="scatter"></div>
-      </section>
-    </div>
-    <section class="card" id="detail"><div class="empty">순위표에서 run을 클릭하면 상세가 표시됩니다.</div></section>
-  </main>
-  <div class="tip" id="tip"></div>
-</div>
-<script>
-const $ = s => document.querySelector(s);
-const pct = (v, d = 2) => v == null ? "–" : (v * 100).toFixed(d) + "%";
-const spct = (v, d = 2) => v == null ? "–" : (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v * 100).toFixed(d) + "%";
-const num = (v, d = 2) => v == null ? "–" : (v < 0 ? "−" : "") + Math.abs(v).toFixed(d);
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const FAM = { rule: "규칙", supervised: "지도학습", rl: "강화학습", baseline: "기준선" };
-const SLOTS = ["--series-1", "--series-2", "--series-3", "--series-4"];
-const css = v => getComputedStyle($(".viz-root")).getPropertyValue(v).trim();
+    <div class="notice" id="loadError" hidden></div>
 
-let DATA, state = { track: null, split: "dev", fams: new Set(Object.keys(FAM)), q: "", sort: ["mean_return", -1], selected: new Map(), active: null };
-
-const COLS = [
-  ["sel", "", null], ["run", "run", null, "l"], ["family", "종류", null, "l"], ["trades", "거래", m => m.trades],
-  ["accuracy", "매매 정확도", m => m.accuracy], ["win_rate", "승률", m => m.win_rate],
-  ["mean_return", "평균 순수익", m => m.mean_return], ["vs_base", "vs 기준선", m => m.vs_base], ["profit_factor", "PF", m => m.profit_factor],
-  ["total_return_pp", "누적 %p", m => m.total_return_pp], ["max_drawdown_pp", "MDD %p", m => m.max_drawdown_pp],
-  ["sharpe_daily_ann", "Sharpe", m => m.sharpe_daily_ann], ["gates", "기준", m => m.passes_gates ? 1 : 0],
-];
-
-function runsInView() {
-  return DATA.runs.filter(r => r.run.track_id === state.track && r.run.split === state.split
-    && state.fams.has(r.run.model.family) && (!state.q || (r.run.run_id + " " + r.run.model.name).toLowerCase().includes(state.q)));
-}
-const baselines = () => DATA.runs.filter(r => r.run.track_id === state.track && r.run.split === state.split && r.run.model.family === "baseline");
-
-function colorOf(id) { const s = state.selected.get(id); return s == null ? null : css(SLOTS[s]); }
-function toggleSelect(id) {
-  if (state.selected.has(id)) state.selected.delete(id);
-  else {
-    const used = new Set(state.selected.values());
-    const free = [0, 1, 2, 3].find(i => !used.has(i));
-    if (free == null) { renderBoard(); return flash("비교는 최대 4개까지입니다. 하나를 해제하세요."); }
-    state.selected.set(id, free);  // color follows the run until it is deselected
-  }
-  render();
-}
-function flash(msg) { const n = $("#notice"); const o = n.textContent; n.textContent = msg; setTimeout(() => (n.textContent = o, renderNotice()), 1800); }
-
-function renderNotice() {
-  const t = DATA.tracks[state.track]; const w = t.windows[state.split] || {}; const g = (t.gates_by_split || {})[state.split] || t.gates;
-  $("#notice").innerHTML = `<b>${({ dev: "개발 구간(dev)", "dev-late": "개발 후반 구간(dev-late)", holdout: "시험 구간(holdout)" })[state.split] || state.split}</b> · ${esc(w.start || "?")} ~ ${esc(w.end || "미정")} · ${esc(w.note || "")}`
-    + (state.split !== "holdout" ? " — 개발 구간 결과는 모델 선택·튜닝에 노출된 기간이므로 최종 성능 주장에 쓰지 않습니다." : "")
-    + ` · 기준(잠정): 거래 ≥ ${g.min_trades}, 활동일 ≥ ${g.min_active_days}`;
-}
-
-function renderBoard() {
-  const rows = runsInView();
-  const bm = baselines().map(b => b.metrics.mean_return).filter(v => v != null);
-  const bavg = bm.length ? bm.reduce((a, b) => a + b, 0) / bm.length : null;
-  rows.forEach(r => r.metrics.vs_base = bavg == null || r.metrics.mean_return == null ? null : r.metrics.mean_return - bavg);
-  const [key, dir] = state.sort; const col = COLS.find(c => c[0] === key);
-  rows.sort((a, b) => {
-    if (key === "run") return dir * a.run.run_id.localeCompare(b.run.run_id);
-    if (key === "family") return dir * a.run.model.family.localeCompare(b.run.model.family);
-    const va = col[2](a.metrics), vb = col[2](b.metrics);
-    return dir * ((va ?? -Infinity) - (vb ?? -Infinity));
-  });
-  $("#board thead").innerHTML = "<tr>" + COLS.map(c => `<th class="${c[3] || ""}" data-k="${c[0]}">${c[1]}${state.sort[0] === c[0] ? (state.sort[1] > 0 ? " ↑" : " ↓") : ""}</th>`).join("") + "</tr>";
-  $("#board tbody").innerHTML = rows.length ? rows.map(r => {
-    const m = r.metrics, id = r.run.run_id, c = colorOf(id);
-    return `<tr data-id="${esc(id)}" class="${state.active === id ? "active" : ""}">
-      <td class="l"><input type="checkbox" ${c ? "checked" : ""} aria-label="비교 선택"></td>
-      <td class="l">${c ? `<span class="swatch" style="background:${c};border-color:${c}"></span>` : ""}${esc(id)} <span class="badge ${r.run.split}">${r.run.split}</span></td>
-      <td class="l fam">${FAM[r.run.model.family]}</td>
-      <td>${m.trades}${m.unclosed ? `<span class="ci"> (미청산 ${m.unclosed})</span>` : ""}</td>
-      <td>${pct(m.accuracy, 1)} <span class="ci">${pct(m.accuracy_ci95[0], 0)}–${pct(m.accuracy_ci95[1], 0)}</span></td>
-      <td>${pct(m.win_rate, 1)}</td>
-      <td>${spct(m.mean_return, 3)} <span class="ci">${spct(m.mean_return_ci95[0], 2)}…${spct(m.mean_return_ci95[1], 2)}</span></td>
-      <td>${m.vs_base == null ? "–" : (m.vs_base >= 0 ? "+" : "−") + Math.abs(m.vs_base * 100).toFixed(2) + "%p"}</td>
-      <td>${num(m.profit_factor)}</td>
-      <td>${num(m.total_return_pp, 1)}</td>
-      <td>${num(m.max_drawdown_pp, 1)}</td>
-      <td>${num(m.sharpe_daily_ann)}</td>
-      <td>${m.passes_gates ? '<span class="ok">✓ 충족</span>' : '<span class="no">✗ 미달</span>'}</td></tr>`;
-  }).join("") : `<tr><td colspan="${COLS.length}" class="empty">이 트랙·구간에 제출된 run이 없습니다.</td></tr>`;
-}
-
-// ---------- charts (plain SVG) ----------
-const W = 640, H = 300, P = { l: 48, r: 12, t: 10, b: 26 };
-function scale(d0, d1, r0, r1) { const k = (r1 - r0) / ((d1 - d0) || 1); return v => r0 + (v - d0) * k; }
-function ticks(lo, hi, n = 5) {
-  const step0 = (hi - lo) / n || 1, mag = 10 ** Math.floor(Math.log10(step0));
-  const step = [1, 2, 2.5, 5, 10].map(s => s * mag).find(s => s >= step0);
-  const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(10)); return out;
-}
-
-const fr = (v, d = 0) => (v * 100).toFixed(d) + "%";
-const METRICS = [
-  { k: "accuracy", label: "매매 정확도", hint: "높을수록 ↑", fmt: v => pct(v, 1), ax: v => fr(v), ci: m => m.accuracy_ci95, better: 1 },
-  { k: "mean_return", label: "거래당 평균 순수익", hint: "높을수록 ↑ · 0 기준", fmt: v => spct(v, 3), ax: v => fr(v, 1), ci: m => m.mean_return_ci95, ref: 0, better: 1 },
-  { k: "profit_factor", label: "Profit factor", hint: "높을수록 ↑ · 1 기준", fmt: v => num(v), ax: v => num(v, 1), ref: 1, better: 1 },
-  { k: "max_drawdown_pp", label: "최대 낙폭 MDD (%p)", hint: "0에 가까울수록 ↑", fmt: v => num(v, 1), ax: v => num(v, 0), ref: 0, better: 1 },
-  { k: "win_rate", label: "승률 (청산 기준)", hint: "높을수록 ↑", fmt: v => pct(v, 1), ax: v => fr(v), better: 1 },
-  { k: "sharpe_daily_ann", label: "Sharpe (연율)", hint: "높을수록 ↑ · 0 기준", fmt: v => num(v), ax: v => num(v, 0), ref: 0, better: 1 },
-  { k: "total_return_pp", label: "누적 순수익 (%p)", hint: "높을수록 ↑ · 0 기준", fmt: v => num(v, 1), ax: v => num(v, 0), ref: 0, better: 1 },
-  { k: "trades", label: "거래 수", hint: "표본 크기 (클수록 신뢰)", fmt: v => String(v), ax: v => String(Math.round(v)), better: 0 },
-];
-const selectedRuns = () => [...state.selected.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => DATA.runs.find(r => r.run.run_id === id)).filter(Boolean);
-const numBadge = (r) => `<span class="num" style="background:${colorOf(r.run.run_id)}">${state.selected.get(r.run.run_id) + 1}</span>`;
-
-function renderMetrics() {
-  const sel = selectedRuns(), base = baselines();
-  $("#mxLegend").innerHTML = sel.map(r => `<span>${numBadge(r)}${esc(r.run.run_id)} <span class="fam">${FAM[r.run.model.family]}</span></span>`).join("");
-  if (!sel.length) { $("#mx").innerHTML = `<div class="empty" style="grid-column:1/-1">순위표나 모델 지도에서 비교할 run을 체크하세요.</div>`; return; }
-  const w = 300, RH = 24, top = 8, bot = 22, L = 22, R = 70;
-  $("#mx").innerHTML = METRICS.map(M => {
-    const v = r => r.metrics[M.k];
-    const bv = base.map(v).filter(x => x != null);
-    const ext = [...sel.flatMap(r => [v(r), ...(M.ci ? M.ci(r.metrics) : [])]), ...bv, ...(M.ref != null ? [M.ref] : [])].filter(x => x != null);
-    let lo = Math.min(...ext), hi = Math.max(...ext); const pad = (hi - lo) * 0.06 || Math.abs(hi) * 0.1 || 1; lo -= pad; hi += pad;
-    if (M.k === "trades" || M.k === "accuracy" || M.k === "win_rate") lo = Math.max(0, lo);
-    const h = top + sel.length * RH + bot, x = scale(lo, hi, L, w - R), tk = ticks(lo, hi, 3);
-    const vals = sel.map(v).filter(x => x != null), best = M.better ? Math.max(...vals) : null;
-    return `<div class="mcard"><h3>${M.label}</h3><div class="hint">${M.hint}</div>
-      <svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="${M.label} 비교">
-      ${bv.length ? `<rect x="${x(Math.min(...bv))}" y="${top - 4}" width="${Math.max(2, x(Math.max(...bv)) - x(Math.min(...bv)))}" height="${sel.length * RH + 4}" fill="var(--baseline)" opacity=".28" rx="3"><title>기준선 범위 ${M.fmt(Math.min(...bv))} ~ ${M.fmt(Math.max(...bv))}</title></rect>` : ""}
-      <g class="axis">${tk.map(t => `<line x1="${x(t)}" x2="${x(t)}" y1="${top - 4}" y2="${h - bot + 2}"/><text x="${x(t)}" y="${h - 6}" text-anchor="middle">${M.ax(t)}</text>`).join("")}</g>
-      ${M.ref != null ? `<line x1="${x(M.ref)}" x2="${x(M.ref)}" y1="${top - 4}" y2="${h - bot + 2}" stroke="var(--zero)" stroke-width="1.5"/>` : ""}
-      ${sel.map((r, i) => {
-        const cy = top + i * RH + RH / 2 - 2, c = colorOf(r.run.run_id), val = v(r), ci = M.ci ? M.ci(r.metrics) : null;
-        return `<g class="mrow" data-id="${esc(r.run.run_id)}" data-m="${M.k}">
-          <rect x="0" y="${cy - RH / 2}" width="${w}" height="${RH}" fill="transparent"/>
-          <text x="4" y="${cy + 4}" style="fill:var(--text-secondary);font-weight:700">${state.selected.get(r.run.run_id) + 1}</text>
-          ${ci && ci[0] != null ? `<line x1="${x(ci[0])}" x2="${x(ci[1])}" y1="${cy}" y2="${cy}" stroke="${c}" stroke-width="2" stroke-linecap="round" opacity=".75"/>` : ""}
-          ${val != null ? `<circle cx="${x(val)}" cy="${cy}" r="5.5" fill="${c}" stroke="var(--surface-1)" stroke-width="2"/>` : ""}
-          <text x="${w - R + 8}" y="${cy + 4}" style="fill:var(--text-primary)">${M.fmt(val)}${M.better && val === best && sel.length > 1 ? " ▲" : ""}</text></g>`;
-      }).join("")}
-      </svg></div>`;
-  }).join("");
-  document.querySelectorAll("#mx .mrow").forEach(g => {
-    g.addEventListener("mousemove", e => {
-      const r = DATA.runs.find(x => x.run.run_id === g.dataset.id), M = METRICS.find(m => m.k === g.dataset.m), ci = M.ci ? M.ci(r.metrics) : null;
-      const bv = baselines().map(b => b.metrics[M.k]).filter(x => x != null);
-      $("#tip").innerHTML = `<b>${esc(r.run.run_id)}</b><div class="row"><span>${M.label}</span><span>${M.fmt(r.metrics[M.k])}</span></div>`
-        + (ci ? `<div class="row"><span>95% 구간</span><span>${M.fmt(ci[0])} … ${M.fmt(ci[1])}</span></div>` : "")
-        + (bv.length ? `<div class="row"><span>기준선 범위</span><span>${M.fmt(Math.min(...bv))} … ${M.fmt(Math.max(...bv))}</span></div>` : "");
-      showTip(e);
-    });
-    g.addEventListener("mouseleave", hideTip);
-  });
-}
-
-function showTip(e) { const t = $("#tip"); t.style.display = "block"; t.style.left = Math.min(e.clientX + 14, innerWidth - t.offsetWidth - 8) + "px"; t.style.top = e.clientY + 14 + "px"; }
-function hideTip() { $("#tip").style.display = "none"; }
-
-function renderScatter() {
-  const MX = METRICS.find(m => m.k === $("#sx").value), MY = METRICS.find(m => m.k === $("#sy").value);
-  const pts = runsInView().filter(r => r.metrics[MX.k] != null && r.metrics[MY.k] != null);
-  if (!pts.length) { $("#scatter").innerHTML = `<div class="empty">표시할 run이 없습니다.</div>`; return; }
-  const W2 = 520, H2 = 340, p = { l: 52, r: 16, t: 12, b: 34 };
-  const xs = pts.map(r => r.metrics[MX.k]), ys = pts.map(r => r.metrics[MY.k]);
-  const padx = (Math.max(...xs) - Math.min(...xs)) * 0.08 || 1, pady = (Math.max(...ys) - Math.min(...ys)) * 0.08 || 1;
-  const [x0, x1, y0, y1] = [Math.min(...xs) - padx, Math.max(...xs) + padx, Math.min(...ys) - pady, Math.max(...ys) + pady];
-  const x = scale(x0, x1, p.l, W2 - p.r), y = scale(y0, y1, H2 - p.b, p.t);
-  const order = [...pts].sort((a, b) => (state.selected.has(a.run.run_id) ? 1 : 0) - (state.selected.has(b.run.run_id) ? 1 : 0));
-  $("#scatter").innerHTML = `<svg viewBox="0 0 ${W2} ${H2}" width="100%" role="img" aria-label="모델 지도">
-    <g class="axis">${ticks(x0, x1, 5).map(t => `<line x1="${x(t)}" x2="${x(t)}" y1="${p.t}" y2="${H2 - p.b}"/><text x="${x(t)}" y="${H2 - p.b + 14}" text-anchor="middle">${MX.ax(t)}</text>`).join("")}
-    ${ticks(y0, y1, 5).map(t => `<line x1="${p.l}" x2="${W2 - p.r}" y1="${y(t)}" y2="${y(t)}"/><text x="${p.l - 6}" y="${y(t) + 4}" text-anchor="end">${MY.ax(t)}</text>`).join("")}</g>
-    ${MX.ref != null && MX.ref > x0 && MX.ref < x1 ? `<line x1="${x(MX.ref)}" x2="${x(MX.ref)}" y1="${p.t}" y2="${H2 - p.b}" stroke="var(--zero)"/>` : ""}
-    ${MY.ref != null && MY.ref > y0 && MY.ref < y1 ? `<line x1="${p.l}" x2="${W2 - p.r}" y1="${y(MY.ref)}" y2="${y(MY.ref)}" stroke="var(--zero)"/>` : ""}
-    <text x="${W2 - p.r}" y="${H2 - 4}" text-anchor="end" style="fill:var(--text-secondary)">${MX.label} →</text>
-    <text x="${p.l}" y="${p.t - 2}" style="fill:var(--text-secondary)">↑ ${MY.label}</text>
-    ${order.map(r => {
-      const id = r.run.run_id, c = colorOf(id), cx = x(r.metrics[MX.k]), cy = y(r.metrics[MY.k]), isB = r.run.model.family === "baseline";
-      const mark = c ? `<circle cx="${cx}" cy="${cy}" r="6.5" fill="${c}" stroke="var(--surface-1)" stroke-width="2"/><text x="${cx + 9}" y="${cy + 4}" style="fill:var(--text-primary);font-weight:700">${state.selected.get(id) + 1}</text>`
-        : isB ? `<circle cx="${cx}" cy="${cy}" r="4.5" fill="none" stroke="var(--baseline)" stroke-width="2"/>`
-        : `<circle cx="${cx}" cy="${cy}" r="4.5" fill="var(--text-muted)" opacity=".55" stroke="var(--surface-1)" stroke-width="1.5"/>`;
-      return `<g class="pt" data-id="${esc(id)}" style="cursor:pointer"><circle cx="${cx}" cy="${cy}" r="11" fill="transparent"/>${mark}</g>`;
-    }).join("")}
-  </svg>`;
-  document.querySelectorAll("#scatter .pt").forEach(g => {
-    g.addEventListener("mousemove", e => {
-      const r = DATA.runs.find(z => z.run.run_id === g.dataset.id);
-      $("#tip").innerHTML = `<b>${esc(r.run.run_id)}</b> <span class="fam">${FAM[r.run.model.family]}</span><div class="row"><span>${MX.label}</span><span>${MX.fmt(r.metrics[MX.k])}</span></div><div class="row"><span>${MY.label}</span><span>${MY.fmt(r.metrics[MY.k])}</span></div><div class="ci">클릭 = 비교 ${state.selected.has(r.run.run_id) ? "해제" : "추가"}</div>`;
-      showTip(e);
-    });
-    g.addEventListener("mouseleave", hideTip);
-    g.addEventListener("click", () => { hideTip(); toggleSelect(g.dataset.id); });
-  });
-}
-
-function renderCurve() {
-  const sel = [...state.selected.keys()].map(id => DATA.runs.find(r => r.run.run_id === id)).filter(Boolean);
-  const base = baselines().filter(b => !state.selected.has(b.run.run_id));
-  const all = [...base, ...sel];
-  $("#curveLegend").innerHTML = sel.map(r => `<span><span class="line" style="border-color:${colorOf(r.run.run_id)}"></span>${esc(r.run.run_id)}</span>`).join("")
-    + (base.length ? `<span><span class="line" style="border-color:var(--baseline);border-top-style:dashed"></span>무작위 기준선 ×${base.length}</span>` : "");
-  if (!sel.length) { $("#curve").innerHTML = `<div class="empty">순위표에서 비교할 run을 체크하세요.</div>`; return; }
-  const days = all[0].metrics.curve.map(p => p[0]);
-  const vals = all.flatMap(r => r.metrics.curve.map(p => p[1]));
-  const lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
-  const x = scale(0, days.length - 1, P.l, W - P.r), y = scale(lo, hi, H - P.b, P.t);
-  const idx = Object.fromEntries(days.map((d, i) => [d, i]));
-  const path = r => r.metrics.curve.map((p, i) => `${i ? "L" : "M"}${x(idx[p[0]] ?? i).toFixed(1)},${y(p[1]).toFixed(1)}`).join("");
-  const yt = ticks(lo, hi), months = days.map((d, i) => [d, i]).filter(([d], i) => i === 0 || d.slice(5, 7) !== days[i - 1].slice(5, 7));
-  const stride = Math.ceil(months.length / 7);
-  $("#curve").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="누적 순수익률 비교">
-    <g class="axis">${yt.map(v => `<line x1="${P.l}" x2="${W - P.r}" y1="${y(v)}" y2="${y(v)}"/><text x="${P.l - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`).join("")}</g>
-    <line x1="${P.l}" x2="${W - P.r}" y1="${y(0)}" y2="${y(0)}" stroke="var(--zero)" stroke-width="1"/>
-    ${months.filter((_, i) => i % stride === 0).map(([d, i]) => `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${d.slice(2, 7).replace("-", ".")}</text>`).join("")}
-    ${base.map(r => `<path d="${path(r)}" fill="none" stroke="var(--baseline)" stroke-width="1.5" stroke-dasharray="4 3"/>`).join("")}
-    ${sel.map(r => `<path d="${path(r)}" fill="none" stroke="${colorOf(r.run.run_id)}" stroke-width="2" stroke-linejoin="round"/>`).join("")}
-    <line id="xh" y1="${P.t}" y2="${H - P.b}" stroke="var(--text-muted)" stroke-width="1" visibility="hidden"/>
-    <g id="dots"></g>
-    <rect x="${P.l}" y="${P.t}" width="${W - P.l - P.r}" height="${H - P.t - P.b}" fill="transparent" id="hit"/>
-  </svg>`;
-  const svg = $("#curve svg"), hit = $("#hit"), tip = $("#tip");
-  hit.addEventListener("mousemove", e => {
-    const b = svg.getBoundingClientRect(), sx = (e.clientX - b.left) * W / b.width;
-    const i = Math.max(0, Math.min(days.length - 1, Math.round((sx - P.l) / ((W - P.l - P.r) / (days.length - 1)))));
-    $("#xh").setAttribute("x1", x(i)); $("#xh").setAttribute("x2", x(i)); $("#xh").setAttribute("visibility", "visible");
-    const pts = sel.map(r => [r, r.metrics.curve.find(p => p[0] === days[i])?.[1]]);
-    $("#dots").innerHTML = pts.filter(p => p[1] != null).map(([r, v]) => `<circle cx="${x(i)}" cy="${y(v)}" r="4" fill="${colorOf(r.run.run_id)}" stroke="var(--surface-1)" stroke-width="2"/>`).join("");
-    tip.innerHTML = `<div style="color:var(--text-secondary);margin-bottom:4px">${days[i]}</div>` + pts.sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0)).map(([r, v]) =>
-      `<div class="row"><span><span class="swatch" style="background:${colorOf(r.run.run_id)};border-color:${colorOf(r.run.run_id)}"></span>${esc(r.run.run_id)}</span><b>${num(v, 1)} %p</b></div>`).join("");
-    tip.style.display = "block"; tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + "px"; tip.style.top = e.clientY + 14 + "px";
-  });
-  hit.addEventListener("mouseleave", () => { tip.style.display = "none"; $("#xh").setAttribute("visibility", "hidden"); $("#dots").innerHTML = ""; });
-}
-
-function bars(edges, counts) {
-  const e = edges.map(v => Math.round(v * 100));
-  const labels = counts.map((_, i) => i === 0 ? `< ${e[0]}%` : i === counts.length - 1 ? `≥ ${e.at(-1)}%` : `${e[i - 1]}~${e[i]}%`);
-  const w = 560, h = 180, max = Math.max(...counts, 1), bw = (w - 40) / counts.length;
-  const y = scale(0, max, h - 34, 22), zeroIdx = edges.indexOf(0);
-  return `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="거래 수익률 분포">
-    ${counts.map((c, i) => { const x0 = 30 + i * bw + 1, top = y(c), hh = h - 34 - top;
-      return `<g class="hb" data-t="${labels[i]}: ${c}건"><rect x="${x0}" y="8" width="${bw - 2}" height="${h - 42}" fill="transparent"/>
-      ${c ? `<path d="M${x0},${h - 34}V${top + Math.min(4, hh)}q0,-4 4,-4h${bw - 10}q4,0 4,4V${h - 34}Z" fill="${i <= zeroIdx ? "var(--baseline)" : "var(--series-1)"}"/>` : ""}
-      ${c ? `<text x="${x0 + (bw - 2) / 2}" y="${top - 3}" text-anchor="middle">${c}</text>` : ""}</g>`; }).join("")}
-    <line x1="30" x2="${w - 10}" y1="${h - 34}" y2="${h - 34}" stroke="var(--zero)"/>
-    ${counts.map((_, i) => i % 2 === 0 ? `<text x="${30 + i * bw + bw / 2}" y="${h - 18}" text-anchor="middle">${labels[i]}</text>` : "").join("")}
-    <text x="30" y="${h - 2}">회색 = 손실 구간 · 파랑 = 이익 구간 (1%p 단위)</text>
-  </svg>`;
-}
-
-function trainCurve(curve) {
-  const w = 560, h = 170, v = curve.map(c => c.value), lo = Math.min(0, ...v), hi = Math.max(0, ...v);
-  const x = scale(0, curve.length - 1, 40, w - 10), y = scale(lo, hi, h - 22, 8), t = ticks(lo, hi, 4);
-  return `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="학습 곡선">
-    <g class="axis">${t.map(k => `<line x1="40" x2="${w - 10}" y1="${y(k)}" y2="${y(k)}"/><text x="34" y="${y(k) + 4}" text-anchor="end">${k}</text>`).join("")}</g>
-    <path d="${curve.map((c, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(c.value).toFixed(1)}`).join("")}" fill="none" stroke="var(--series-1)" stroke-width="2"/>
-    <text x="40" y="${h - 4}">step 1</text><text x="${w - 10}" y="${h - 4}" text-anchor="end">step ${curve.length}</text></svg>`;
-}
-
-function renderDetail() {
-  const r = DATA.runs.find(x => x.run.run_id === state.active);
-  if (!r) { $("#detail").innerHTML = `<div class="empty">순위표에서 run을 클릭하면 상세가 표시됩니다.</div>`; return; }
-  const m = r.metrics, run = r.run;
-  const reasons = Object.entries(m.exit_reasons).map(([k, v]) => `<tr><td class="l">${esc(k)}</td><td>${v}</td><td>${pct(v / m.trades, 1)}</td></tr>`).join("");
-  $("#detail").innerHTML = `<h2>${esc(run.run_id)} <span class="badge ${run.split}">${run.split}</span> <span class="fam">${FAM[run.model.family]}</span></h2>
-    <p class="desc">${esc(run.notes || "")}</p>
-    <div class="metrics4">
-      <div class="tile"><div class="k">매매 정확도</div><div class="v">${pct(m.accuracy, 1)}</div><div class="ci">95% ${pct(m.accuracy_ci95[0], 1)}–${pct(m.accuracy_ci95[1], 1)}</div></div>
-      <div class="tile"><div class="k">거래당 평균 순수익</div><div class="v">${spct(m.mean_return, 3)}</div><div class="ci">중앙 ${spct(m.median_return, 3)}</div></div>
-      <div class="tile"><div class="k">평균 이익 / 손실</div><div class="v" style="font-size:15px">${spct(m.mean_win)} / ${spct(m.mean_loss)}</div><div class="ci">최대 ${spct(m.best_trade)} · 최악 ${spct(m.worst_trade)}</div></div>
-      <div class="tile"><div class="k">MDD (단위 누적)</div><div class="v">${num(m.max_drawdown_pp, 1)} %p</div><div class="ci">활동일 ${m.active_days}</div></div>
-    </div>
-    <div class="grid2">
-      <div><h2 style="font-size:13px">거래별 순수익률 분포</h2><div id="hist">${bars(m.return_hist.edges, m.return_hist.counts)}</div>
-        ${r.train_curve ? `<h2 style="font-size:13px;margin-top:12px">학습 곡선 (${esc(r.train_curve[0].metric || "value")})</h2>${trainCurve(r.train_curve)}` : ""}</div>
-      <div>
-        <h2 style="font-size:13px">청산 사유</h2><table><thead><tr><th class="l">사유</th><th>건수</th><th>비중</th></tr></thead><tbody>${reasons}</tbody></table>
-        <h2 style="font-size:13px;margin-top:12px">메타데이터</h2>
-        <dl class="kv"><dt>모델</dt><dd>${esc(run.model.name)} · ${esc(run.model.version)}</dd><dt>작성자</dt><dd>${esc(run.author)}</dd><dt>제출</dt><dd>${r.submission ? esc(r.submission.submitted_by + " · " + r.submission.submitted_at) : "로컬 (미제출)"}</dd>
-        <dt>생성</dt><dd>${esc(run.created_at)}</dd><dt>artifact</dt><dd><code>${esc(run.artifact_hash.slice(0, 16))}…</code></dd>
-        ${run.source ? `<dt>원 실험</dt><dd>${esc(run.source)}</dd>` : ""}${run.params ? `<dt>params</dt><dd><code>${esc(JSON.stringify(run.params))}</code></dd>` : ""}
-        <dt>기준</dt><dd>${Object.entries(m.gates).map(([k, v]) => `${v ? '<span class="ok">✓</span>' : '<span class="no">✗</span>'} ${k}`).join(" · ")}</dd></dl>
+    <section class="summary" aria-live="polite">
+      <h1 id="headline">불러오는 중…</h1>
+      <p id="windowNote"></p>
+      <div class="context">
+        <div class="segmented" id="splits" role="group" aria-label="평가 구간"></div>
       </div>
-    </div>`;
-  document.querySelectorAll("#hist .hb").forEach(g => {
-    g.addEventListener("mousemove", e => { const tip = $("#tip"); tip.textContent = g.dataset.t; tip.style.display = "block"; tip.style.left = e.clientX + 12 + "px"; tip.style.top = e.clientY + 12 + "px"; });
-    g.addEventListener("mouseleave", () => $("#tip").style.display = "none");
-  });
-}
+    </section>
 
-function render() {
-  const t = DATA.tracks[state.track];
-  $("#trackTitle").textContent = t.title;
-  renderNotice(); renderBoard(); renderMetrics(); renderCurve(); renderScatter(); renderDetail();
-}
+    <section id="boardView" role="tabpanel" aria-labelledby="view-board">
+      <div class="workbench" id="workbench">
+        <div class="panel">
+          <div class="toolbar">
+            <div id="families" role="group" aria-label="모델 종류" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+            <button class="toggle" id="gatesOnly" aria-pressed="false"><span class="dot"></span>기준 충족만</button>
+            <div class="spacer"></div>
+            <label class="field"><span class="sr-only">run 검색</span><input class="search" id="q" type="search" placeholder="run 이름으로 찾기"></label>
+          </div>
+          <div class="board-wrap">
+            <table class="board" id="board">
+              <caption class="sr-only">run 순위표. 행을 선택하면 상세가, 체크하면 비교 목록에 추가됩니다.</caption>
+              <thead></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="board-foot">
+            <span><span class="legend-band"></span>무작위 기준선 평균 수익 범위</span>
+            <span><span class="legend-ci"></span>거래당 평균 순수익 95% 구간</span>
+            <span id="rowCount" style="margin-left:auto"></span>
+          </div>
+        </div>
+        <aside class="panel inspector" id="inspector" hidden aria-label="run 상세"></aside>
+      </div>
+    </section>
 
-function bind() {
-  $("#board thead").addEventListener("click", e => {
-    const k = e.target.closest("th")?.dataset.k; if (!k || k === "sel") return;
-    state.sort = [k, state.sort[0] === k ? -state.sort[1] : -1]; renderBoard();
-  });
-  $("#board tbody").addEventListener("click", e => {
-    const tr = e.target.closest("tr[data-id]"); if (!tr) return;
-    if (e.target.type === "checkbox") return toggleSelect(tr.dataset.id);
-    state.active = tr.dataset.id; renderBoard(); renderDetail();
-    $("#detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
-  });
-  document.querySelectorAll(".chip").forEach(c => c.addEventListener("click", () => {
-    const f = c.dataset.fam; state.fams.has(f) ? state.fams.delete(f) : state.fams.add(f);
-    c.setAttribute("aria-pressed", state.fams.has(f)); renderBoard();
-  }));
-  $("#q").addEventListener("input", e => { state.q = e.target.value.toLowerCase(); renderBoard(); });
-  $("#track").addEventListener("change", e => { state.track = e.target.value; fillSplits(); defaultPick(); render(); });
-  $("#split").addEventListener("change", e => { state.split = e.target.value; defaultPick(); render(); });
-  $("#sx").addEventListener("change", renderScatter); $("#sy").addEventListener("change", renderScatter);
-  $("#theme").addEventListener("click", () => {
-    const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-    document.documentElement.dataset.theme = cur === "dark" ? "light" : "dark"; render();
-  });
-}
+    <section id="compareView" role="tabpanel" aria-labelledby="view-compare" hidden></section>
+  </main>
 
-function fillSplits(want) {
-  const ws = Object.keys(DATA.tracks[state.track].windows);
-  const count = s => DATA.runs.filter(r => r.run.track_id === state.track && r.run.split === s).length;
-  $("#split").innerHTML = ws.map(s => `<option value="${s}">${s} (${count(s)})</option>`).join("");
-  state.split = ws.includes(want) ? want : ws.includes("dev-late") && count("dev-late") ? "dev-late" : ws[0];
-  $("#split").value = state.split;
-}
-// default comparison per split: best RL, the take-all reference, best other model — so the page opens with something to read
-function defaultPick() {
-  state.selected.clear();
-  const c = DATA.runs.filter(r => r.run.track_id === state.track && r.run.split === state.split && r.run.model.family !== "baseline")
-    .sort((a, b) => b.metrics.mean_return - a.metrics.mean_return);
-  const ref = c.find(r => r.run.run_id.startsWith("sel-v2.current.after_tp3.sys"));
-  const pick = [...new Set([c.find(r => r.run.model.family === "rl" && r.metrics.passes_gates) || c.find(r => r.run.model.family === "rl"), ref, c.find(r => r.run.model.family !== "rl" && r !== ref)].filter(Boolean))].slice(0, 3);
-  pick.forEach((r, i) => state.selected.set(r.run.run_id, i));
-  state.active = pick[0]?.run.run_id ?? null;
-}
-
-if (location.protocol === "https:") $("#logout").style.display = "inline";
-fetch("data.json", { cache: "no-store" }).then(r => {
-  if (r.status === 401) { location.reload(); throw new Error("세션 만료 — 다시 로그인합니다"); }
-  return r.json();
-}).then(d => {
-  DATA = d;
-  $("#generated").textContent = `생성 ${d.generated_at} · run ${d.runs.length}개` + (Object.keys(d.rejected).length ? ` · 거부 ${Object.keys(d.rejected).length}` : "");
-  $("#track").innerHTML = Object.entries(d.tracks).map(([k, t]) => `<option value="${k}">${k}</option>`).join("");
-  state.track = Object.keys(d.tracks)[0];
-  const opts = METRICS.map(m => `<option value="${m.k}">${m.label}</option>`).join("");
-  $("#sx").innerHTML = opts; $("#sy").innerHTML = opts; $("#sx").value = "max_drawdown_pp"; $("#sy").value = "mean_return";
-  const q = new URLSearchParams(location.search);
-  fillSplits(q.get("split")); defaultPick(); bind(); render();
-}).catch(e => { $("#notice").textContent = "data.json을 불러오지 못했습니다: " + e + " — `uv run python -m arena build` 후 `serve`로 여세요."; });
-</script>
+  <div class="tray" id="tray" hidden role="region" aria-label="비교 목록">
+    <span class="label">비교 목록</span>
+    <div class="chips" id="trayChips"></div>
+    <button class="btn ghost small" id="trayClear">비우기</button>
+    <button class="btn primary small" id="trayOpen">비교 보기</button>
+  </div>
+  <div class="tip" id="tip" role="tooltip"></div>
+  <script src="app.js"></script>
 </body>
 </html>

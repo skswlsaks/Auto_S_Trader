@@ -31,9 +31,15 @@ def build(runs_dir=RUNS, site_dir=SITE) -> dict:
         m = score(trades, tracks[run["track_id"]], run["split"])
         receipt = runs_dir / name / "submission.json"
         sub = json.loads(receipt.read_text()) if receipt.exists() else None
-        runs.append({"run": run, "metrics": m, "train_curve": curve, "submission": sub})
-    data = {"generated_at": now(), "tracks": tracks, "runs": runs, "rejected": rejected}
+        from .reproduce import latest_report
+        runs.append({"run": run, "metrics": m, "train_curve": curve, "submission": sub,
+                     "reproduction": latest_report(runs_dir / name)})
+    import os
+    data = {"generated_at": now(), "tracks": tracks, "runs": runs, "rejected": rejected,
+            "store": os.environ.get("ARENA_REMOTE")}
     site_dir.mkdir(parents=True, exist_ok=True)
     (site_dir / "data.json").write_text(json.dumps(data, ensure_ascii=False))
-    shutil.copy(PKG / "site" / "index.html", site_dir / "index.html")
+    for f in (PKG / "site").iterdir():
+        if f.is_file():
+            shutil.copy(f, site_dir / f.name)
     return data

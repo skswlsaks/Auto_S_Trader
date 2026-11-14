@@ -5,6 +5,8 @@ import json
 import math
 import random
 
+from pathlib import Path
+
 import pandas as pd
 
 from .store import OUTPUTS, sha, write_run
@@ -43,18 +45,34 @@ def load_selective() -> pd.DataFrame:
 LATE = ("2026-07-01", "2026-10-28")
 
 
-def write_with_late(meta: dict, frame: pd.DataFrame, curve=None) -> list[str]:
+def write_with_late(meta: dict, frame: pd.DataFrame, curve=None, artifacts=None, provenance=None) -> list[str]:
     """Write the full-dev run and its dev-late slice (same trades, same model) for fair comparison."""
-    write_run(meta, selective_trades(frame), curve)
+    write_run(meta, selective_trades(frame), curve, artifacts=artifacts, provenance=provenance)
     late = frame[(frame["day"] >= LATE[0]) & (frame["day"] <= LATE[1])]
     write_run(meta | {"run_id": meta["run_id"] + "@late", "split": "dev-late",
-                      "notes": meta.get("notes", "") + " [dev-late 구간 슬라이스]"}, selective_trades(late))
+                      "notes": meta.get("notes", "") + " [dev-late 구간 슬라이스]"}, selective_trades(late),
+              artifacts=artifacts, provenance=provenance)
     return [meta["run_id"], meta["run_id"] + "@late"]
 
 
+def selective_model_files(protocol: dict) -> dict[str, Path]:
+    """Locate the frozen up/down models referenced by protocol hashes (they live in other experiments)."""
+    from .provenance import file_sha256
+    want = {protocol["up_model"]: "entry-up-model.joblib", protocol["down_model"]: "exit-down-model.joblib"}
+    found = {}
+    for f in sorted((OUTPUTS / "model-research").glob("**/*.joblib")):
+        name = want.get(file_sha256(str(f)))
+        if name and name not in found:
+            found[name] = f
+    return found
+
+
 def import_selective() -> list[str]:
+    from .provenance import collect
     t = load_selective()
     protocol = json.loads((SELECTIVE / "protocol.json").read_text())
+    models = selective_model_files(protocol)
+    base_inputs = [SELECTIVE / "trades.parquet", SELECTIVE / "protocol.json"]
     ids = []
     for (mode, policy, method), g in t.groupby(["mode", "policy", "method"]):
         family, short = METHOD_FAMILY[method]
@@ -69,12 +87,15 @@ def import_selective() -> list[str]:
             "artifact_hash": sha({k: protocol.get(k) for k in ("source_sha256", "up_model", "down_model")} | {"g": run_id}),
             "source": "outputs/" + str(SELECTIVE.relative_to(OUTPUTS)),
             "notes": f"{protocol['entry_modes'].get(mode, mode)} · {protocol['policies'].get(policy, policy)}. 회고 재생, walk-forward 아님.",
-        }, g)
+        }, g, artifacts=(arts := {k: v for k, v in models.items() if short == "bear" or k.startswith("entry")}),
+           provenance=collect(["import-selective"], base_inputs + list(arts.values())))
     return ids
 
 
 def baseline_random(seeds=(1, 2, 3, 4, 5), keep=0.5) -> list[str]:
     """Random filter over the broadest candidate pool (current / after_tp3 / system_only)."""
+    from .provenance import collect
+    prov = collect(["baseline-random"], [SELECTIVE / "trades.parquet"])
     t = load_selective()
     pool = t[(t["mode"] == "current") & (t["policy"] == "after_tp3") & (t["method"] == "system_only")]
     ids = []
@@ -88,5 +109,5 @@ def baseline_random(seeds=(1, 2, 3, 4, 5), keep=0.5) -> list[str]:
             "author": "arena", "artifact_hash": sha({"seed": s, "keep": keep, "pool": "current/after_tp3/system_only"}),
             "params": {"seed": s, "keep": keep, "pool": "current/after_tp3/system_only"},
             "notes": "같은 후보 집합에서 무작위로 고른 기준선. 거르는 정책(RL 포함)은 이 분포를 넘어야 의미가 있다.",
-        }, g)
+        }, g, provenance=prov)
     return ids
