@@ -7,16 +7,15 @@ output "dashboard_url" {
   value = "https://${aws_cloudfront_distribution.site.domain_name}"
 }
 
-output "basic_auth_user" {
-  value = var.basic_auth_user
-}
-
-output "basic_auth_password" {
-  value     = random_password.basic_auth.result
-  sensitive = true
-}
-
 output "team_group" {
   description = "Add teammates' IAM users here (var.team_users) to grant store access"
   value       = aws_iam_group.team.name
+}
+
+output "cognito_user_pool_id" {
+  value = aws_cognito_user_pool.arena.id
+}
+
+output "login_domain" {
+  value = "https://${aws_cognito_user_pool_domain.arena.domain}.auth.${var.region}.amazoncognito.com"
 }

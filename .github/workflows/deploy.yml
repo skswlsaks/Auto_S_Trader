@@ -1,0 +1,91 @@
+name: test-and-deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  TF_VERSION: 1.14.4
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - name: Edge auth tests
+        run: node --test infra/arena/edge/index.test.mjs
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - name: Python tests
+        run: |
+          uv run python -m unittest arena.tests.test_arena arena.tests.test_remote_env
+          uv run python -m unittest discover -s modeling/tests -t .
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: Terraform fmt / validate
+        run: |
+          terraform fmt -check -recursive infra
+          for d in infra/arena infra/bootstrap; do
+            terraform -chdir=$d init -backend=false -input=false >/dev/null
+            terraform -chdir=$d validate
+          done
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Terraform apply (infra/arena)
+        working-directory: infra/arena
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=arena/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="use_lockfile=true" -backend-config="encrypt=true"
+          terraform plan -input=false -out=tfplan
+          terraform apply -input=false tfplan
+          echo "ARENA_REMOTE=$(terraform output -raw arena_remote)" >> "$GITHUB_ENV"
+          echo "DASHBOARD_URL=$(terraform output -raw dashboard_url)" >> "$GITHUB_ENV"
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - name: Rebuild and publish dashboard from shared runs
+        run: |
+          uv run python -m arena pull
+          uv run python -m arena build
+          uv run python -m arena publish
+      - name: Smoke check (login is enforced)
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$DASHBOARD_URL/")
+          data=$(curl -s -o /dev/null -w '%{http_code}' "$DASHBOARD_URL/data.json")
+          echo "index=$code data=$data"
+          test "$code" = 302 && test "$data" = 401
+          echo "### Dashboard deployed: $DASHBOARD_URL" >> "$GITHUB_STEP_SUMMARY"

@@ -82,7 +82,7 @@ flowchart LR
 | 저장소 | 로컬 `outputs/arena/runs/` | 공유 폴더 또는 S3 (`arena submit/pull`, 구현) | DB + 아티팩트 저장소 |
 | 제출 | CLI `validate`·`import-*` | CLI `submit`(검증 후 업로드), 제출자 기록 | CI에서 자동 평가 |
 | 계산 | 로컬 `build` | 업로드 시 서버에서 재계산 | holdout은 서버만 접근, 예측만 받음 |
-| 화면 | 정적 HTML(`serve`) | S3+CloudFront+Basic 인증 (`infra/arena`, 구현) | 코멘트·승격 워크플로 |
+| 화면 | 정적 HTML(`serve`) | S3+CloudFront+Cognito 로그인 (`infra/arena`, 구현) | 코멘트·승격 워크플로 |
 | holdout 보호 | 표시만 | 제출 횟수 기록 | 정답 비공개 평가 서버 |
 
 ### 4.1 팀 공유 저장소 (구현됨)
@@ -98,7 +98,7 @@ flowchart LR
 - **run_id는 불변**이다. 같은 내용을 다시 내면 `unchanged`, 내용이 다르면 거부되므로 새 run_id를 쓴다.
 - holdout 제출은 (트랙, model.name)마다 `holdout_submissions_per_model` 횟수로 제한한다.
 - `pull`은 모든 공유 run을 로컬로 받고, `build` 후 `publish`로 공용 화면을 올린다.
-- Terraform(`infra/arena`): 전용 비공개·버전관리 S3(`runs/`, `site/`), `site/`만 읽는 CloudFront(OAC)와 Basic 인증 CloudFront Function, 팀 IAM 그룹(`runs/*`·`site/*` 읽기/쓰기, 삭제 없음). 사용법은 `infra/arena/README.md`.
+- Terraform(`infra/arena`): 전용 비공개·버전관리 S3(`runs/`, `site/`), `site/`만 읽는 CloudFront(OAC), Cognito 로그인(Lambda@Edge에서 JWT 검증), 팀 IAM 그룹(`runs/*`·`site/*` 읽기/쓰기, 삭제 없음). `main` push 시 GitHub Actions가 자동 배포한다. 사용법은 `infra/arena/README.md`.
 
 ## 5. 강화학습 연결 방식 (v0 구현)
 
@@ -178,5 +178,12 @@ uv run python -m arena publish                 # 공용 대시보드 업로드
 - `infra/arena`를 기본 AWS 프로필 계정의 `ap-northeast-2`에 `apply`했다(13개 리소스). S3 run 저장소, CloudFront 대시보드, Basic 인증 함수, 팀 IAM 그룹이다.
 - 로컬 run 51개를 `submit`으로 올렸고, `pull → build → publish`로 공용 대시보드를 게시했다.
 - 확인 결과: 인증 없음·잘못된 비밀번호 401, 올바른 인증 200(data.json run 51개, 제출자 기록 포함), S3 직접 접근 403.
-- URL·비밀번호는 저장소에 기록하지 않는다. `terraform -chdir=infra/arena output dashboard_url`, `... output -raw basic_auth_password`로 확인한다. state는 배포자 로컬에만 있다.
-- 실제 브라우저 화면은 아직 확인하지 않았다. 팀원 IAM 연결(`team_users`)도 아직 하지 않았다.
+- URL은 저장소에 기록하지 않는다. `terraform -chdir=infra/arena output dashboard_url`로 확인한다.
+- 팀원 IAM 연결(`team_users`)은 아직 하지 않았다.
+
+## 12. Cognito 로그인 + GitHub 자동 배포 (2026-11-14)
+
+- Basic 인증을 Cognito로 교체했다. 동작은 Hosted UI(관리자 생성 사용자만) → Lambda@Edge가 code+PKCE로 토큰 교환 → HttpOnly 쿠키 → 매 요청 JWT(RS256) 검증 순서다. 사용자 초대는 `infra/arena/add-user.sh`로 한다.
+- 검증: 미로그인 시 페이지는 Cognito로 302, `data.json`은 401이다. 임시 사용자로 Hosted UI 로그인 → 콜백 → 원래 주소 복귀 → 대시보드 200·run 51개를 스크립트로 확인했고, 임시 사용자는 삭제했다.
+- `infra/bootstrap`: Terraform state S3 버킷(S3 네이티브 잠금), GitHub OIDC 공급자, `main` 전용 배포 역할을 만들었다. 두 스택의 state를 로컬에서 S3로 이전했다.
+- `.github/workflows/deploy.yml`: PR에서는 테스트와 Terraform 검증만 한다. `main`에서는 OIDC 인증 → `apply` → 공유 run으로 대시보드 재빌드·게시 → 로그인 강제 확인까지 한다.

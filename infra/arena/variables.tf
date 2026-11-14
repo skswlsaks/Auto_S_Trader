@@ -5,21 +5,15 @@ variable "region" {
 }
 
 variable "aws_profile" {
-  description = "Local AWS CLI profile used by Terraform"
+  description = "Local AWS CLI profile used by Terraform (null in CI, which uses OIDC credentials)"
   type        = string
-  default     = "default"
+  default     = null
 }
 
 variable "name" {
   description = "Resource name prefix"
   type        = string
   default     = "s-trader-arena"
-}
-
-variable "basic_auth_user" {
-  description = "Dashboard login user (password is generated)"
-  type        = string
-  default     = "arena"
 }
 
 variable "team_users" {

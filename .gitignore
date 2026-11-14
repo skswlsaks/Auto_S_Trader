@@ -101,3 +101,8 @@ Thumbs.db
 *.tfvars
 !*.tfvars.example
 crash.log
+
+# per-account backend settings
+backend.hcl
+
+.build/

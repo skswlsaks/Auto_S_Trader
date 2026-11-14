@@ -1,0 +1,5 @@
+bucket       = "s-trader-tfstate-<ACCOUNT_ID>-ap-northeast-2"
+key          = "arena/terraform.tfstate"
+region       = "ap-northeast-2"
+use_lockfile = true
+encrypt      = true

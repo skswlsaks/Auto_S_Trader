@@ -11,7 +11,7 @@
 - [로컬 모델 실행과 저장 위치](MODEL_RUNBOOK.md): 자격 증명, 수집·학습·평가·상주 추론 명령, 구현 범위와 제한.
 - 이 README: 실행·복구·운영 방법과 모의 체결의 제약.
 - [Model Arena 기획·표준](ARENA_PLAN.md): 팀 공동 모델 평가 표준, 비교 대시보드(`arena/`), 강화학습 환경.
-- [Model Arena AWS 배포](infra/arena/README.md): 공유 run 저장소(S3)와 인증 대시보드(CloudFront) Terraform.
+- [Model Arena AWS 배포](infra/arena/README.md): 공유 run 저장소(S3), Cognito 로그인 대시보드(CloudFront), GitHub Actions 자동 배포. 기반 리소스는 [infra/bootstrap](infra/bootstrap/README.md).
 
 설계 문서의 목표 구성은 배포 완료 상태를 뜻하지 않습니다. 현재 기록은 주요 판단과 행동을 재생하는 수준이며 모든 관망 사유·오류·증권사 원본 메시지의 완전한 감사 기록은 아닙니다.
 

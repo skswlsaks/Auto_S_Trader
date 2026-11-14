@@ -95,6 +95,7 @@ svg text { fill: var(--text-muted); font-size: 11px; }
     <span class="sub" id="trackTitle"></span>
     <span class="right" id="generated"></span>
     <button id="theme" title="테마 전환">◐</button>
+    <a id="logout" href="/_auth/logout" style="color:var(--text-secondary);font-size:12px;display:none">로그아웃</a>
   </header>
   <div class="bar">
     <label>트랙 <select id="track"></select></label>
@@ -466,7 +467,11 @@ function defaultPick() {
   state.active = pick[0]?.run.run_id ?? null;
 }
 
-fetch("data.json").then(r => r.json()).then(d => {
+if (location.protocol === "https:") $("#logout").style.display = "inline";
+fetch("data.json", { cache: "no-store" }).then(r => {
+  if (r.status === 401) { location.reload(); throw new Error("세션 만료 — 다시 로그인합니다"); }
+  return r.json();
+}).then(d => {
   DATA = d;
   $("#generated").textContent = `생성 ${d.generated_at} · run ${d.runs.length}개` + (Object.keys(d.rejected).length ? ` · 거부 ${Object.keys(d.rejected).length}` : "");
   $("#track").innerHTML = Object.entries(d.tracks).map(([k, t]) => `<option value="${k}">${k}</option>`).join("");

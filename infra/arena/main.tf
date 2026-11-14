@@ -82,27 +82,12 @@ resource "aws_s3_bucket_policy" "arena" {
   })
 }
 
-# ---------- dashboard: CloudFront (OAC) + basic auth ----------
-resource "random_password" "basic_auth" {
-  length  = 24
-  special = false
-}
-
+# ---------- dashboard: CloudFront (OAC) + Cognito login at the edge ----------
 resource "aws_cloudfront_origin_access_control" "site" {
   name                              = "${var.name}-oac"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
-}
-
-resource "aws_cloudfront_function" "basic_auth" {
-  name    = "${var.name}-basic-auth"
-  runtime = "cloudfront-js-2.0"
-  comment = "Model Arena dashboard login"
-  publish = true
-  code = templatefile("${path.module}/basic_auth.js.tftpl", {
-    expected = "Basic ${base64encode("${var.basic_auth_user}:${random_password.basic_auth.result}")}"
-  })
 }
 
 data "aws_cloudfront_cache_policy" "disabled" {
@@ -131,9 +116,10 @@ resource "aws_cloudfront_distribution" "site" {
     compress               = true
     cache_policy_id        = data.aws_cloudfront_cache_policy.disabled.id
 
-    function_association {
+    lambda_function_association {
       event_type   = "viewer-request"
-      function_arn = aws_cloudfront_function.basic_auth.arn
+      lambda_arn   = aws_lambda_function.auth.qualified_arn
+      include_body = false
     }
   }
 
