@@ -20,7 +20,7 @@ flowchart LR
 |---|---|
 | S3 `s-trader-arena-<계정>-<리전>` | `runs/`(제출 run), `site/`(대시보드). 비공개·버전관리·AES256·TLS 전용 |
 | CloudFront + OAC | `site/`만 읽는 HTTPS 대시보드. 캐시 없음 |
-| Cognito 사용자 풀 + Hosted UI | 관리자가 만든 사용자만 로그인(자가 가입 없음), 비밀번호 12자 이상, TOTP MFA 선택 |
+| Cognito 사용자 풀 + Hosted UI | 관리자가 만든 사용자만 로그인(자가 가입 없음), 비밀번호 8자 이상(문자 종류 제한 없음), TOTP MFA 선택 |
 | Lambda@Edge (`us-east-1`) | 로그인 쿠키(ID 토큰) RS256 서명·발급자·대상·만료 검증, `/_auth/callback`·`/_auth/logout` 처리. 설정은 SSM `/s-trader-arena/auth-config` |
 | IAM 그룹 `s-trader-arena-team` | 팀원 `runs/*`·`site/*` 읽기/쓰기(삭제 없음) |
 | state | S3 `s-trader-tfstate-…` 의 `arena/terraform.tfstate`, S3 네이티브 잠금 (`infra/bootstrap`) |
