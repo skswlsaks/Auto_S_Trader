@@ -4,6 +4,11 @@ import json
 import math
 import re
 import sqlite3
+import tempfile
+import os
+import fcntl
+from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -44,6 +49,7 @@ def normalized_candle(raw):
     return {"timestamp": timestamp(raw["timestamp"]).isoformat(), **row}
 
 
+@contextmanager
 def open_store(path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -58,7 +64,10 @@ def open_store(path):
       CREATE TABLE IF NOT EXISTS progress(
         series TEXT PRIMARY KEY, cursor TEXT, complete INTEGER, pages INTEGER, oldest TEXT);
     """)
-    return db
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 def fetch_series(api, db, symbol, interval, adjusted, start, end, max_pages=5000, progress=print):
@@ -149,17 +158,36 @@ def export_series(db, config, symbol, interval, adjusted, start, end):
     rows = [normalized_candle(json.loads(r[0])) for r in db.execute(
         "SELECT raw FROM candles WHERE symbol=? AND interval=? AND adjusted=? AND timestamp>=? AND timestamp<=? ORDER BY timestamp",
         (symbol, interval, adjusted, timestamp(start).isoformat(), timestamp(end).isoformat()))]
-    if not rows:
-        return None
-    frame = pd.DataFrame(rows)
+    frame = pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close", "volume"])
     frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
+    for col in ("open", "high", "low", "close", "volume"):
+        frame[col] = frame[col].astype(float)
     target = Path(config["data_dir"]) / "candles" / f"{symbol}-{interval}-{'adjusted' if adjusted else 'raw'}.parquet"
     target.parent.mkdir(parents=True, exist_ok=True)
-    frame.to_parquet(target, index=False)
-    return {"path": str(target), "rows": len(frame), "first": frame.timestamp.min().isoformat(), "last": frame.timestamp.max().isoformat()}
+    fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
+    os.close(fd)
+    try:
+        frame.to_parquet(temporary, index=False)
+        os.replace(temporary, target)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return {"path": str(target), "rows": len(frame), "first": frame.timestamp.min().isoformat() if len(frame) else None,
+            "last": frame.timestamp.max().isoformat() if len(frame) else None}
 
 
 def collect(config, api=None):
+    root = Path(config["data_dir"])
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / ".collection.lock").open("a+") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("A collector already owns this data directory") from None
+        return _collect(config, api)
+
+
+def _collect(config, api=None):
     api = api or TossAPI(config["credentials_file"], config["api_min_interval_seconds"])
     universe = discover_universe(api, config)
     start = datetime.fromisoformat(config["start_date"]).replace(tzinfo=KST)
@@ -168,18 +196,40 @@ def collect(config, api=None):
         raise ValueError("Collection end_date must be a completed KST day")
     daily_start = start - timedelta(days=420)
     reports = []
-    with open_store(Path(config["data_dir"]) / "raw.sqlite") as db:
-        for symbol in universe["symbols"]:
+    store_path = Path(config["data_dir"]) / "raw.sqlite"
+    # Initialize once; each worker owns its SQLite connection and commits one page.
+    with open_store(store_path):
+        pass
+
+    def one_symbol(symbol):
+        completed = []
+        with open_store(store_path) as db:
             for interval, adjusted, begin in (("1m", False, start), ("1d", True, daily_start), ("1d", False, daily_start)):
                 info = fetch_series(api, db, symbol, interval, adjusted, begin.isoformat(), end.isoformat(), config["api_max_pages_per_series"])
                 exported = export_series(db, config, symbol, interval, adjusted, begin.isoformat(), end.isoformat())
-                reports.append({**info, "adjusted": adjusted, "export": exported})
+                completed.append({**info, "adjusted": adjusted, "export": exported})
+        return completed
+
+    pool = ThreadPoolExecutor(max_workers=config.get("api_workers", 1))
+    futures = [pool.submit(one_symbol, symbol) for symbol in universe["symbols"]]
+    try:
+        for future in as_completed(futures):
+            reports.extend(future.result())
             atomic_json(Path(config["data_dir"]) / "collection-progress.json", {"series": reports, "finished": False})
+    except BaseException:
+        if hasattr(api, "stop_event"):
+            api.stop_event.set()
+        pool.shutdown(wait=True, cancel_futures=True)
+        raise
+    else:
+        pool.shutdown(wait=True)
+    reports.sort(key=lambda r: (r["symbol"], r["interval"], r["adjusted"]))
     result = {"source": "toss_api", "schema_version": "1.2.28", "start_date": config["start_date"], "end_date": config["end_date"],
               "minute_timestamp": "bar end, [timestamp-1 minute,timestamp)", "minute_scope": "09:01-15:20 KST; outside regular-clock hours skipped by cursor", "venue": universe["venue"],
               "universe_hash": digest(universe), "series": reports, "finished": True,
               "limitations": [universe["universe_scope"], "Minute bars have no exact trading amount; close*volume is only a proxy."]}
     atomic_json(Path(config["data_dir"]) / "collection.json", result)
+    atomic_json(Path(config["data_dir"]) / "collection-progress.json", {"series": reports, "finished": True})
     return result
 
 

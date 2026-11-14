@@ -45,6 +45,16 @@ def load_config(path=DEFAULT_CONFIG):
     for k in ("buy_fee_bps", "sell_fee_bps", "sell_tax_bps", "slippage_bps", "half_spread_bps"):
         if not isinstance(e[k], (float, int)) or not math.isfinite(e[k]) or not 0 <= e[k] <= 1000:
             raise ValueError(f"Invalid execution.{k}")
+    schedule = e.get("sell_tax_schedule", [])
+    if not isinstance(schedule, list):
+        raise ValueError("sell_tax_schedule must be a list")
+    dates = []
+    for row in schedule:
+        dates.append(date.fromisoformat(row["effective_from"]))
+        if not isinstance(row["bps"], (int, float)) or not math.isfinite(row["bps"]) or not 0 <= row["bps"] <= 1000:
+            raise ValueError("Invalid scheduled sell tax")
+    if dates != sorted(set(dates)) or (dates and date.fromisoformat(c["start_date"]) < dates[0]):
+        raise ValueError("Tax schedule must be chronological and cover the collection start")
     for k in ("initial_cash_krw", "max_position_krw", "max_holding_minutes"):
         if e[k] <= 0:
             raise ValueError(f"Invalid execution.{k}")

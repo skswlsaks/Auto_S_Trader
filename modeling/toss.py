@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shlex
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -60,6 +61,9 @@ class TossAPI:
         self.transport = transport or urllib.request.build_opener(NoRedirect()).open
         self.sleep = sleeper
         self.last_request = 0.
+        self.pacing_lock = threading.Lock()
+        self.token_lock = threading.Lock()
+        self.stop_event = threading.Event()
         self.token = self.values.get("TOSS_ACCESS_TOKEN")
         self.expires = float("inf") if self.token else 0.
         self.client_hash = hashlib.sha256(self.values.get("TOSS_CLIENT_ID", "").encode()).hexdigest()
@@ -72,8 +76,11 @@ class TossAPI:
 
     def _request(self, request):
         for attempt in range(6):
-            self.sleep(max(0., self.min_interval - (time.monotonic() - self.last_request)))
-            self.last_request = time.monotonic()
+            if self.stop_event.is_set():
+                raise RuntimeError("Collection stopped; committed checkpoints are resumable")
+            with self.pacing_lock:
+                self.sleep(max(0., self.min_interval - (time.monotonic() - self.last_request)))
+                self.last_request = time.monotonic()
             try:
                 with self.transport(request, timeout=20) as response:
                     body = json.load(response)
@@ -93,6 +100,10 @@ class TossAPI:
         raise RuntimeError("Unreachable API retry state")
 
     def access_token(self):
+        with self.token_lock:
+            return self._access_token()
+
+    def _access_token(self):
         if self.token and time.time() < self.expires - 60:
             return self.token
         if not all(self.values.get(k) for k in KEYS[:2]):
@@ -110,7 +121,7 @@ class TossAPI:
         return self.token
 
     def get(self, path, **query):
-        if path not in ("/api/v1/candles", "/api/v1/sectors", "/api/v1/stocks/all") and not re.fullmatch(r"/api/v1/sectors/[A-Za-z0-9_-]{1,40}/(?:stocks|etfs)", path):
+        if path not in ("/api/v1/candles", "/api/v1/sectors", "/api/v1/stocks/all", "/api/v1/market-calendar/KR") and not re.fullmatch(r"/api/v1/sectors/[A-Za-z0-9_-]{1,40}/(?:stocks|etfs)", path):
             raise ValueError("Read-only endpoint allowlist rejected path")
         request = urllib.request.Request(BASE + path + "?" + urllib.parse.urlencode(query),
                                          headers={"Authorization": "Bearer " + self.access_token()}, method="GET")

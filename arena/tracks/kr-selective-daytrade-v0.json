@@ -1,0 +1,36 @@
+{
+  "track_id": "kr-selective-daytrade-v0",
+  "title": "국내 선별 단타 (D 일봉 선정 → D+1 장중 진입)",
+  "universe": "selective-daytrade 20261101-v2 관찰목록 (D-close 상위3, 정규장 분봉). protocol.json source_sha256=e3078c19…",
+  "decision_rule": "D 종가까지의 일봉으로 후보 고정, D+1 장중 신호 시각까지의 분봉만 사용. 청산 3%/5% 익절·본절은 시스템 고정 주문.",
+  "windows": {
+    "dev": {
+      "start": "2025-10-29",
+      "end": "2026-10-28",
+      "note": "1년 회고 재생. 학습 기준일 이후(2026-08-27~)도 이미 공개된 개발 기간"
+    },
+    "dev-late": {
+      "start": "2026-07-01",
+      "end": "2026-10-28",
+      "note": "dev 후반 4개월. RL은 이전 기간만 학습에 사용하고 이 구간에서 결정론 평가. 기존 규칙·지도학습 모델 개발에는 노출됨"
+    },
+    "holdout": {
+      "start": "2026-11-16",
+      "end": null,
+      "note": "미확보. 새 거래일 누적 후 개방"
+    }
+  },
+  "costs": "KRX 표준 수수료 + KOSPI/KOSDAQ 매도세 공시 스케줄, 분봉 거래량 한도 체결 (원 실험 protocol.json 기준)",
+  "gates": {
+    "min_trades": 30,
+    "min_active_days": 20
+  },
+  "holdout_submissions_per_model": 1,
+  "success_tolerance": 1e-09,
+  "gates_by_split": {
+    "dev": {
+      "min_trades": 100,
+      "min_active_days": 40
+    }
+  }
+}

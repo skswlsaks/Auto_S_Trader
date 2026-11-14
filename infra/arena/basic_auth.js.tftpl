@@ -1,0 +1,11 @@
+function handler(event) {
+  var auth = event.request.headers.authorization;
+  if (auth && auth.value === "${expected}") {
+    return event.request;
+  }
+  return {
+    statusCode: 401,
+    statusDescription: "Unauthorized",
+    headers: { "www-authenticate": { value: "Basic realm=\"Model Arena\"" } }
+  };
+}

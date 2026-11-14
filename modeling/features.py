@@ -16,7 +16,12 @@ FEATURES = ["ret_1", "ret_5", "ret_15", "ret_60", "range_atr", "body_atr", "clos
             "high_slope", "low_slope", "higher_low_atr", "resistance_distance_atr", "support_distance_atr",
             "setup_age", "pullback_depth_atr", "recovery_atr", "pullback_volume_ratio", "rebound_volume_ratio",
             "minutes_since_open", "daily_momentum20", "daily_ma20_distance", "daily_ma60_distance", "daily_ma240_distance",
-            "opening_gap", "sector_ret15", "sector_breadth", "relative_strength15", "sector_daily_momentum20"]
+            "opening_gap", "signal_risk_pct", "estimated_cost_to_risk", "sector_ret15", "sector_breadth", "relative_strength15", "sector_daily_momentum20"]
+
+
+def contract_hashes():
+    return {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+            for name in ("features.py", "execution.py")}
 
 
 def regular_bars(frame):
@@ -66,10 +71,10 @@ def structural_features(bars, symbol, config):
             f[f"ema{n}_distance_atr"] = (f.close - f.close.ewm(span=n, adjust=False).mean()) / atr
         f["compression"] = (f.high.rolling(10).max() - f.low.rolling(10).min()) / (f.high.rolling(30).max() - f.low.rolling(30).min()).replace(0, np.nan)
         f["minutes_since_open"] = f.minute - 540
-        for col in ("high_slope", "low_slope", "higher_low_atr", "resistance_distance_atr", "support_distance_atr",
-                    "setup_age", "pullback_depth_atr", "recovery_atr", "pullback_volume_ratio", "rebound_volume_ratio"):
-            f[col] = np.nan
-        f["candidate"], f["stop_price"], f["pattern_id"] = False, np.nan, ""
+        columns = ("high_slope", "low_slope", "higher_low_atr", "resistance_distance_atr", "support_distance_atr",
+                   "setup_age", "pullback_depth_atr", "recovery_atr", "pullback_volume_ratio", "rebound_volume_ratio")
+        extra = {name: np.full(len(f), np.nan) for name in columns}
+        candidates, stops, pattern_ids = np.zeros(len(f), dtype=bool), np.full(len(f), np.nan), np.full(len(f), "", dtype=object)
         highs, lows, setup, cooldown = [], [], None, -1
         hi, lo, close, volume, vol_unit = [f[x].to_numpy() for x in ("high", "low", "close", "volume")] + [atr.to_numpy()]
         right, window = p["pivot_right_bars"], p["lookback_bars"]
@@ -96,7 +101,8 @@ def structural_features(bars, symbol, config):
                 (j1, v1), (j2, v2) = lows[-2:]
                 ls, higher = (v2 - v1) / (j2 - j1), (v2 - v1) / a
                 support = v2 + ls * (i - j2)
-            f.loc[i, ["high_slope", "low_slope", "higher_low_atr", "resistance_distance_atr", "support_distance_atr"]] = [hs/a, ls/a, higher, (close[i]-resistance)/a, (close[i]-support)/a]
+            for name, value in zip(columns[:5], (hs/a, ls/a, higher, (close[i]-resistance)/a, (close[i]-support)/a)):
+                extra[name][i] = value
             if setup and (i - setup["start"] > p["setup_max_bars"] or close[i] < setup["line"] - p["invalidation_atr"] * a):
                 setup = None
             if setup is None:
@@ -109,14 +115,18 @@ def structural_features(bars, symbol, config):
             if setup["stage"] == "pullback":
                 setup["low"] = min(setup["low"], lo[i])
                 prior_volume = np.mean(setup["pull_volumes"]) if setup["pull_volumes"] else max(volume[i], 1.)
-                f.loc[i, ["setup_age", "pullback_depth_atr", "recovery_atr", "pullback_volume_ratio", "rebound_volume_ratio"]] = [i-setup["start"], (setup["peak"]-setup["low"])/a, (close[i]-setup["low"])/a, prior_volume/setup["break_volume"], volume[i]/max(prior_volume, 1.)]
+                for name, value in zip(columns[5:], (i-setup["start"], (setup["peak"]-setup["low"])/a, (close[i]-setup["low"])/a, prior_volume/setup["break_volume"], volume[i]/max(prior_volume, 1.))):
+                    extra[name][i] = value
                 if close[i] > hi[i-1] and close[i] > setup["line"] and close[i] - setup["low"] >= p["rebound_atr"] * a and volume[i] > 0:
                     stop = setup["low"] - .1 * a
                     if 0 < stop < close[i]:
-                        f.loc[i, ["candidate", "stop_price", "pattern_id"]] = [True, stop, digest([symbol, f.timestamp.iloc[setup["start"]].isoformat()])[:20]]
+                        candidates[i], stops[i], pattern_ids[i] = True, stop, digest([symbol, f.timestamp.iloc[setup["start"]].isoformat()])[:20]
                     setup, cooldown = None, i + p["cooldown_bars"]
                 elif setup:
                     setup["pull_volumes"].append(volume[i])
+        for name in columns:
+            f[name] = extra[name]
+        f["candidate"], f["stop_price"], f["pattern_id"] = candidates, stops, pattern_ids
         parts.append(f)
     result = pd.concat(parts, ignore_index=True) if parts else bars.copy()
     result["symbol"] = symbol
@@ -132,10 +142,18 @@ def symbol_features(minutes, adjusted, raw, symbol, config):
     f = pd.merge_asof(f.sort_values("known_from"), daily_features(adjusted, raw), on="known_from", direction="backward").sort_values("timestamp").reset_index(drop=True)
     first_open = f.groupby("day").open.transform("first")
     f["opening_gap"] = first_open / f.previous_close - 1
+    f["signal_risk_pct"] = (f.close - f.stop_price) / f.close
+    e = config["execution"]
+    tax = pd.Series(float(e["sell_tax_bps"]), index=f.index)
+    for row in e.get("sell_tax_schedule", []):
+        tax = tax.mask(f.day >= row["effective_from"], row["bps"])
+    roundtrip_cost = (e["buy_fee_bps"] + e["sell_fee_bps"] + tax + 2 * (e["slippage_bps"] + e["half_spread_bps"])) / 10000
+    f["estimated_cost_to_risk"] = roundtrip_cost / f.signal_risk_pct.where(f.signal_risk_pct > 0)
     return f.replace([np.inf, -np.inf], np.nan)
 
 
 def build(config, allow_partial=False):
+    implementation = contract_hashes()
     root = Path(config["data_dir"])
     collection_path = root / "collection.json"
     if not allow_partial and (not collection_path.exists() or not json.loads(collection_path.read_text())["finished"]):
@@ -149,11 +167,13 @@ def build(config, allow_partial=False):
                 continue
             raise ValueError(f"Missing candle files for {symbol}")
         minutes, adjusted, raw = [pd.read_parquet(p) for p in files]
-        f = symbol_features(minutes, adjusted, raw, symbol, config)
-        if f.empty:
-            continue
         for path in files:
             source_files.append({"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+        f = symbol_features(minutes, adjusted, raw, symbol, config)
+        if f.empty:
+            coverage.append({"symbol": symbol, "minute_rows": 0, "days": 0, "candidates": 0,
+                             "exclusion_reason": "no_regular_clock_history_in_requested_period"})
+            continue
         contribution = f.set_index("timestamp")[["ret_15", "daily_momentum20"]].copy()
         contribution["breadth_sum"] = (contribution.ret_15 > 0).astype(float).where(contribution.ret_15.notna())
         contribution["intraday_count"] = contribution.ret_15.notna().astype(int)
@@ -162,8 +182,9 @@ def build(config, allow_partial=False):
         accum = contribution if accum is None else accum.add(contribution, fill_value=0)
         candidates = f.loc[f.candidate].copy()
         labeled = []
+        label_bars = f[["timestamp", "open", "high", "low", "close", "volume"]]
         for row in candidates.to_dict("records"):
-            label = outcome(f[f.day == row["day"]], row["timestamp"], row["stop_price"], config)
+            label = outcome(label_bars, row["timestamp"], row["stop_price"], config)
             labeled.append({**row, **label})
         if labeled:
             frames.append(pd.DataFrame(labeled))
@@ -185,14 +206,19 @@ def build(config, allow_partial=False):
         data[name] = data[name].astype("float32")
     data["regime"] = np.select([data.sector_daily_momentum20 > 0, data.sector_daily_momentum20 < 0], ["up", "down"], default="neutral")
     columns = ["timestamp", "symbol", "day", "pattern_id", "stop_price", *FEATURES, "regime", "filled", "label_status", "ambiguous",
-               "entry_at", "exit_at", "entry_price", "quantity", "capital", "net_pnl", "net_R", "net_return", "exit_reason", "path_times", "path_pnl"]
+               "entry_at", "exit_at", "valuation_at", "remaining_quantity", "entry_price", "quantity", "capital", "net_pnl", "net_R", "net_return", "exit_reason",
+               "path_times", "path_pnl", "path_remaining", "path_ambiguous"]
     for col in columns:
         if col not in data:
             data[col] = None
+    for col in ("path_times", "path_pnl", "path_remaining", "path_ambiguous"):
+        data[col] = data[col].map(lambda value: list(value) if isinstance(value, (list, np.ndarray)) else [])
     data = data[columns]
+    if contract_hashes() != implementation:
+        raise ValueError("Feature/label source changed during dataset build; rerun with a stable implementation")
     output = root / "candidates.parquet"
     data.to_parquet(output, index=False)
-    manifest = {"version": VERSION, "source": "toss_api", "partial": bool(allow_partial), "universe": universe["universe_scope"],
+    manifest = {"version": VERSION, "contract_hashes": implementation, "source": "toss_api", "partial": bool(allow_partial), "universe": universe["universe_scope"],
                 "source_files": source_files, "feature_names": FEATURES, "pattern": config["pattern"], "execution": config["execution"],
                 "coverage": coverage, "candidate_rows": len(data), "filled_rows": int(data.filled.sum()),
                 "label_status": data.label_status.value_counts().to_dict(), "regimes": data.regime.value_counts().to_dict(),

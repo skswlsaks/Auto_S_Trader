@@ -91,3 +91,13 @@ Thumbs.db
 # Local autotrader configuration
 *.sqlite*
 .toss-token-cache.json
+
+# Python env pin, token caches, terraform working files and plans
+.toss-token-cache.json
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+crash.log

@@ -9,7 +9,8 @@
   "data_dir": "../../outputs/model-research/data",
   "runs_dir": "../../outputs/model-research/runs",
   "credentials_file": "../.env.toss.local",
-  "api_min_interval_seconds": 0.35,
+  "api_min_interval_seconds": 0.075,
+  "api_workers": 3,
   "api_max_pages_per_series": 5000,
   "pattern": {
     "pivot_right_bars": 2,
@@ -22,11 +23,21 @@
     "cooldown_bars": 10
   },
   "execution": {
-    "assumption_note": "Research assumptions, NOT verified brokerage costs or execution performance.",
+    "assumption_note": "Published KOSPI/KOSDAQ sell-tax schedule; standard KRX commission used conservatively for integrated candles. Account promotions, actual venue, spread and execution impact remain unverified.",
     "costs_verified": false,
     "buy_fee_bps": 1.5,
     "sell_fee_bps": 1.5,
     "sell_tax_bps": 20.0,
+    "sell_tax_schedule": [
+      {"effective_from": "2024-12-27", "bps": 15.0},
+      {"effective_from": "2025-12-29", "bps": 20.0}
+    ],
+    "cost_sources": {
+      "checked_at": "2026-10-30",
+      "tax": "https://p.tossinvest.com/ko/post?category=52&id=18410&type=notice",
+      "standard_commission": "https://i18n.toss.im/service/securities",
+      "scope": "Ordinary KOSPI/KOSDAQ shares, excluding ETF/ETN/KONEX; not account-specific fees"
+    },
     "slippage_bps": 5.0,
     "half_spread_bps": 2.0,
     "participation": 0.01,

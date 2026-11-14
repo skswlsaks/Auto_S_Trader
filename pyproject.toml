@@ -1,0 +1,18 @@
+[project]
+name = "s-trader-modeling"
+version = "0.1.0"
+description = "Local Toss semiconductor model research and inference"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+  "numpy>=2.0,<2.4",
+  "pandas>=2.2,<3",
+  "pyarrow>=18,<24",
+  "scikit-learn>=1.6,<2",
+  "lightgbm>=4.7,<5",
+  "optuna>=4,<6",
+  "joblib>=1.4,<2",
+  "matplotlib>=3.10,<4",
+]
+
+[tool.uv]
+package = false
