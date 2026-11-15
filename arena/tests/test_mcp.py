@@ -16,7 +16,7 @@ from arena.store import SITE
 
 HAS_SITE = (SITE / "data" / "index.json").exists()
 EXPECTED = {"arena_overview", "arena_list_runs", "arena_get_run", "arena_compare_runs", "arena_list_studies", "arena_study_grid",
-            "arena_list_lab_sources", "arena_lab_query", "arena_metric_definitions", "arena_schema", "arena_create_run",
+            "arena_list_lab_sources", "arena_lab_query", "arena_search_combos", "arena_metric_definitions", "arena_schema", "arena_create_run",
             "arena_validate_run", "arena_submit_run", "arena_preview_study", "arena_submit_study", "arena_request_refresh", "arena_reproduce_run", "arena_whoami"}
 
 
@@ -65,8 +65,17 @@ class ReadToolsTest(unittest.TestCase):
                 grid = json.loads(text(await c.call_tool("arena_study_grid", {"study_id": "picks-runner-20261114-v1"})))
                 lab = json.loads(text(await c.call_tool("arena_lab_query", {"source_id": "study:entry-gate-20261114-v1",
                                                                               "filters": {"variant": ["A_close"], "gate_ok": ["True"]}, "group_by": ["period"]})))
-                return ov, runs, grid, lab
-        ov, runs, grid, lab = run(go())
+                found = json.loads(text(await c.call_tool("arena_search_combos", {
+                    "source_id": "study:picks-runner-20261114-v1", "split_column": "period", "select_values": ["pre"], "test_values": ["post"],
+                    "holdout_source_id": "study:holdout-picks-20261029-20261113", "max_conditions": 1, "top": 5})))
+                locked = await c.call_tool("arena_search_combos", {"source_id": "study:holdout-picks-20261029-20261113"})
+                return ov, runs, grid, lab, found, locked
+        ov, runs, grid, lab, found, locked = run(go())
+        self.assertEqual(found["split"]["select"], ["pre"])
+        self.assertEqual(len(found["rows"]), 5)
+        self.assertIn("holdout", found["rows"][0])
+        self.assertIn("entry_variant", found["rows"][0]["model"])
+        self.assertTrue(locked.is_error)
         self.assertIn("kr-selective-daytrade-v0:dev-late", ov["runs_per_split"])
         self.assertEqual((runs["split"], len(runs["runs"])), ("dev-late", 5))
         self.assertGreaterEqual(runs["runs"][0]["mean_return"], runs["runs"][-1]["mean_return"])

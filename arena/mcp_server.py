@@ -41,6 +41,8 @@ Typical flows
 - Look: arena_overview -> arena_list_runs / arena_list_studies -> arena_get_run / arena_study_grid.
 - Combine model x conditions: arena_list_lab_sources -> arena_lab_query (filters, group_by). Lab results
   are exploratory (not multiple-testing corrected); report the q-values from studies for decisions.
+- "Which combination is best?": arena_search_combos (rank on one period, check on a later one and
+  on the locked holdout via holdout_source_id). Report robust picks with their test/holdout numbers.
 - Submit a model result: arena_schema -> arena_create_run -> arena_validate_run -> arena_submit_run.
 - Submit a condition experiment folder: arena_preview_study -> arena_submit_study.
 - Reproduce: arena_reproduce_run (local server only).
@@ -206,6 +208,53 @@ def arena_lab_query(source_id: str, filters: dict[str, Any] | None = None, group
     res = lab_query(src, filters, group_by)
     if src.get("locked_holdout"):
         res["warning"] = "locked holdout: do not choose conditions or thresholds from this data"
+    return res
+
+
+def _slim(st: dict | None) -> dict | None:
+    if not st:
+        return st
+    return {k: (round(v, 6) if isinstance(v, float) else v) for k, v in st.items() if k != "sum_pp"}
+
+
+@server.tool(annotations=READ)
+@friendly
+def arena_search_combos(source_id: str, max_conditions: int = 2, split_date: str | None = None, split_column: str | None = None,
+                        select_values: list[str] | None = None, test_values: list[str] | None = None,
+                        holdout_source_id: str | None = None, min_trades: int = 25, min_days: int = 10,
+                        models: list[str] | None = None, conditions: list[str] | None = None,
+                        sort: str = "sel", top: int = 15) -> dict:
+    """Find the best model x condition combinations honestly. Tries every model value with up to
+    max_conditions (0-2) condition values, ranks them on a SELECTION period, corrects for the number
+    tried (BH q over a day-clustered test of mean > 0), then shows each pick on a later TEST period it
+    was not chosen on, and optionally on another source (e.g. the locked holdout) matched by values.
+    Split: split_date "YYYY-MM-DD" (before = selection, from = test; default: last third of days is
+    test) or split_column + select_values + test_values (e.g. "period", ["pre"], ["post"]).
+    sort: sel (selection mean) | test | worst (min of both; uses the test period, so then only the
+    holdout is independent) | q. robust = q < 0.05 on selection AND test mean > 0 (test n >= 10).
+    models/conditions restrict the columns (default: all; calendar and date-splitting columns skipped)."""
+    from . import search as sr
+    src = data().lab(source_id)
+    if src.get("locked_holdout"):
+        raise ValueError("this is a locked holdout: search a development source and pass this one as holdout_source_id")
+    if split_column:
+        if not (select_values and test_values):
+            raise ValueError("split_column needs select_values and test_values")
+        split = {"by": "column", "key": split_column, "select": select_values, "test": test_values}
+    else:
+        split = {"by": "date", "cut": split_date} if split_date else None
+    hold = data().lab(holdout_source_id) if holdout_source_id else None
+    res = sr.search(src, model_keys=models, cond_keys=conditions, max_conds=max_conditions, split=split, min_n=min_trades,
+                    min_days=min_days, holdout=hold, sort=sort, top=max(1, min(top, 100)))
+    for r in res["rows"]:
+        r["sel"], r["test"] = _slim(r["sel"]), _slim(r["test"])
+        if "holdout" in r:
+            r["holdout"] = _slim(r["holdout"])
+        r.pop("model"), r.pop("conds")
+        r["model"], r["conditions"] = r.pop("model_labels"), r.pop("cond_labels")
+    res["source_id"], res["holdout_source_id"] = source_id, holdout_source_id
+    res["read_me"] = ("mean = net return per trade (0.01 = 1%). Judge by robust + test + holdout, not the top selection mean: "
+                      "the highest selection means are usually the most overfit. aliases = other labels reaching the same trades.")
     return res
 
 

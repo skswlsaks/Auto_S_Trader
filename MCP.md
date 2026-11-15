@@ -46,13 +46,14 @@ args = ["/Users/<나>/arena_mcp_proxy.py"]
 
 확인: AI에게 "Model Arena에서 내가 누구로 로그인돼 있어?"라고 물으면 `arena_whoami`가 이메일을 돌려준다.
 
-## 도구 (18개)
+## 도구 (19개)
 
 | 분류 | 도구 | 하는 일 |
 |---|---|---|
 | 조회 | `arena_overview`, `arena_list_runs`, `arena_get_run`, `arena_compare_runs` | 트랙·구간, 순위(보정 q, 무작위 대비 백분위, 재현 상태), run 상세, 비교 |
 | | `arena_list_studies`, `arena_study_grid` | 조건 실험 목록, 행×열 격자(n, 평균, 95% 구간, q, 유의 여부) |
 | 조합 | `arena_list_lab_sources`, `arena_lab_query` | 모델 × 조건을 골라 즉시 계산. 조건 없는 같은 모델, 같은 수 무작위 선택과 비교. 그룹별 결과 |
+| 조합 탐색 | `arena_search_combos` | 모든 모델 × 조건(최대 2개) 조합을 앞 기간으로 순위 매기고 다중검정 보정, 뒤 기간·잠금 시험에서 같은 조합 확인 |
 | 기준 | `arena_schema`, `arena_metric_definitions` | 제출 형식과 지표 정의 |
 | 작성 | `arena_create_run`, `arena_validate_run` | 거래 목록이나 내 컴퓨터의 거래 파일(JSON/CSV/parquet)로 run 초안 작성·검증. 모델 파일·입력 해시·git 커밋 자동 기록 |
 | 제출 | `arena_submit_run`, `arena_preview_study`, `arena_submit_study` | run 제출(불변), 실험 폴더 미리보기·제출 |

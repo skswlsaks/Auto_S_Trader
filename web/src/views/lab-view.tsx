@@ -1,15 +1,16 @@
 "use client";
 import Link from "next/link";
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useMemo } from "react";
 import { CurveChart, Heatmap, MetricStrip, type HeatCell } from "@/components/charts";
 import { useColors } from "@/components/charts/echart";
-import { Badge, Button, Callout, cx, Empty, Loading, MetricLabel, Panel, SelectBox, Stat, StatGrid } from "@/components/ui";
+import { Badge, Button, Callout, cx, Empty, Loading, MetricLabel, Panel, Segmented, SelectBox, Stat, StatGrid } from "@/components/ui";
 import { useIndex, useLabSource } from "@/lib/data";
 import { groupBy, metrics, randomPercentile, select, type Filters, type LabMetrics } from "@/lib/engine";
 import { int, pct, prob, spct } from "@/lib/format";
 import { metricByKey } from "@/lib/metric-defs";
 import type { LabSource } from "@/lib/types";
 import { Headline, useQuery } from "./common";
+import { LabSearch } from "./lab-search";
 
 const KPI = ["mean", "accuracy", "profit_rate_01", "profit_factor", "max_drawdown_pp", "cvar5", "sharpe", "payoff_ratio"];
 const GRID_METRICS = ["mean", "accuracy", "profit_rate_01", "profit_factor", "max_drawdown_pp", "sharpe", "cvar5", "trades"];
@@ -35,9 +36,10 @@ export function LabView() {
   const filters = useDeferredValue(filtersRaw);
   const rowsKey = q.get("rows") ?? "", colsKey = q.get("cols") ?? "";
   const gm = metricByKey[q.get("m") ?? "mean"];
+  const mode = q.get("mode") === "search" ? "search" : "manual";
 
   const result = useMemo(() => {
-    if (!src) return null;
+    if (!src || mode === "search") return null;
     const modelOnly: Filters = Object.fromEntries(src.columns.filter(c => c.role === "model").map(c => [c.key, filters[c.key]]));
     const idxSel = select(src, filters), idxBase = select(src, modelOnly);
     const sel = metrics(src, idxSel), base = metrics(src, idxBase);
@@ -65,7 +67,7 @@ export function LabView() {
       }
     }
     return { sel, base, rand, conditioned, counts, grid, nSel: idxSel.length, nBase: idxBase.length };
-  }, [src, filters, rowsKey, colsKey, gm]);
+  }, [src, filters, rowsKey, colsKey, gm, mode]);
 
   if (!idx || !colors) return <Loading />;
   if (!sources.length) return <Panel><Empty title="실험실에 쓸 데이터가 없습니다">조건 실험이나 Arena run이 올라오면 자동으로 생깁니다.</Empty></Panel>;
@@ -81,14 +83,18 @@ export function LabView() {
 
   return (
     <>
-      <Headline title="모델과 조건을 직접 조합해 결과를 봅니다."
-        note="같은 모델에 조건을 걸었을 때 결과가 어떻게 바뀌는지, 그 차이가 같은 수의 무작위 선택보다 나은지 바로 계산합니다. 사전 등록·보정 전 탐색 결과이므로 결정은 조건 실험의 보정 값과 새 기간 시험으로 확인합니다.">
-        <SelectBox label="데이터" value={sourceId ?? ""} onChange={v => q.set({ source: v, rows: null, cols: null, ...Object.fromEntries((src?.columns ?? []).map(c => [`f.${c.key}`, null])) })}
+      <Headline title={mode === "search" ? "어떤 모델과 조건의 조합이 가장 좋은지 찾습니다." : "모델과 조건을 직접 조합해 결과를 봅니다."}
+        note={mode === "search" ? "한 기간에서 고른 1등은 우연일 때가 많습니다. 그래서 앞 기간에서 고르고, 시도한 수만큼 보정한 뒤, 고를 때 쓰지 않은 기간에서 같은 조합을 다시 확인합니다."
+          : "같은 모델에 조건을 걸었을 때 결과가 어떻게 바뀌는지, 그 차이가 같은 수의 무작위 선택보다 나은지 바로 계산합니다. 사전 등록·보정 전 탐색 결과이므로 결정은 조건 실험의 보정 값과 새 기간 시험으로 확인합니다."}>
+        <Segmented label="보기" value={mode} onChange={v => q.set({ mode: v === "manual" ? null : v })}
+          options={[{ value: "manual", label: "직접 조합" }, { value: "search", label: "최적 조합 찾기" }]} />
+        <SelectBox label="데이터" value={sourceId ?? ""} onChange={v => q.set({ source: v, rows: null, cols: null, "s.split": null, "s.hold": null, ...Object.fromEntries((src?.columns ?? []).map(c => [`f.${c.key}`, null])) })}
           options={sources.map(s => ({ value: s.source_id, label: `${s.title}${s.locked_holdout ? " (잠금 시험)" : ""}` }))} className="min-w-[280px]" />
         <Button size="sm" variant="ghost" onClick={() => navigator.clipboard.writeText(location.href)}>이 조합 링크 복사</Button>
       </Headline>
-      {meta?.locked_holdout && <Callout>잠금 시험 데이터입니다. 여기서 조건을 고르면 시험의 독립성이 사라집니다. 사전 등록한 조합 확인 용도로만 쓰세요.</Callout>}
-      {!src || !result ? <Loading label="거래 데이터를 불러오는 중" /> : (
+      {meta?.locked_holdout && mode === "manual" && <Callout>잠금 시험 데이터입니다. 여기서 조건을 고르면 시험의 독립성이 사라집니다. 사전 등록한 조합 확인 용도로만 쓰세요.</Callout>}
+      {mode === "search" ? (!src || !meta ? <Loading label="거래 데이터를 불러오는 중" /> : <LabSearch src={src} meta={meta} sources={sources} q={q} />)
+      : !src || !result ? <Loading label="거래 데이터를 불러오는 중" /> : (
         <div className="grid grid-cols-[340px_minmax(0,1fr)] items-start gap-4 max-lg:grid-cols-1">
           <aside className="sticky top-16 max-h-[calc(100vh-84px)] overflow-auto rounded-lg border border-rule bg-panel max-lg:static max-lg:max-h-none">
             {(["model", "condition"] as const).map(role => (

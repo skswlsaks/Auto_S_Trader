@@ -34,13 +34,13 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npx tsc --noEmit
-          node --test tests/engine.test.ts
+          node --test tests/engine.test.ts tests/search.test.ts
           npm run build
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --locked
       - name: Python tests
         run: |
-          uv run python -m unittest arena.tests.test_arena arena.tests.test_remote_env arena.tests.test_provenance arena.tests.test_studies arena.tests.test_watch arena.tests.test_mcp arena.tests.test_mcp_remote
+          uv run python -m unittest arena.tests.test_arena arena.tests.test_remote_env arena.tests.test_provenance arena.tests.test_studies arena.tests.test_watch arena.tests.test_search arena.tests.test_mcp arena.tests.test_mcp_remote
           uv run python -m unittest discover -s modeling/tests -t .
       - uses: hashicorp/setup-terraform@v3
         with:
