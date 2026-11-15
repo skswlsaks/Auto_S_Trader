@@ -85,6 +85,12 @@ def watch_once(remote: str | None, since: str | None = "2026-11-14", min_age: in
     if submitted and not dry_run:
         STATE.parent.mkdir(parents=True, exist_ok=True)
         STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+        if remote:  # new studies may bring new symbols/days: share the condition tables built from local data
+            from . import lab
+            from . import remote as rm
+            lab.update_conditions()
+            rm.push_conditions(remote, lab.CONDITIONS)
+            log("pushed condition tables")
         if refresh and remote and shutil.which("gh"):
             r = subprocess.run(["gh", "workflow", "run", "refresh.yml", "--repo", REPO], capture_output=True, text=True)
             log("requested dashboard refresh" if r.returncode == 0 else f"refresh request failed: {r.stderr.strip()[:200]}")

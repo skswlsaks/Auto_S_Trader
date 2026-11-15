@@ -26,7 +26,9 @@ WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"]
 # ---------- condition library ----------
 
 def update_conditions() -> Path | None:
-    """Copy the newest KOSDAQ regime table produced by research runs into the Arena condition cache."""
+    """Refresh the Arena condition cache from local research outputs: the newest KOSDAQ regime table
+    and the per-stock daily feature table. Without research outputs (CI) the pulled cache is kept."""
+    update_stock_table()
     found = sorted((OUTPUTS / "model-research").glob("*/*/kosdaq-gate.csv"), key=lambda p: p.stat().st_mtime)
     if not found:
         return None
@@ -94,7 +96,9 @@ def candle_dirs() -> list[Path]:
 
 
 def _bucket(values, edges, labels) -> np.ndarray:
-    v = pd.to_numeric(pd.Series(values), errors="coerce")
+    # round first: the shared table stores float32, and values sitting exactly on an edge (e.g. a close
+    # exactly 10% under the 60-day high) must land in the same bucket whichever path computed them
+    v = pd.to_numeric(pd.Series(values), errors="coerce").astype(float).round(6)
     out = pd.cut(v, edges, labels=labels, right=False).astype(object)
     return out.where(out.notna(), MISSING).astype(str).to_numpy()
 
@@ -144,19 +148,90 @@ def daily_features(symbol: str, folder: Path | list[Path] | None = None) -> pd.D
     return out.replace([np.inf, -np.inf], np.nan)
 
 
-def features_before(df: pd.DataFrame, day_col: str, symbol_col: str, folder: Path | None = None) -> pd.DataFrame:
-    """For each row: the daily features of the last bar strictly before its trade day (= S, no look-ahead)."""
-    cols = ["day_ret"] + [k for k, *_ in DAILY_BUCKETS]
-    keys = pd.DataFrame({"symbol": df[symbol_col].astype(str).to_numpy(),
-                         "day": pd.to_datetime(df[day_col].astype(str).str[:10]).to_numpy(), "row": np.arange(len(df))})
+FEATURE_COLS = ["day_ret"] + [k for k, *_ in DAILY_BUCKETS]
+STOCK_TABLE = CONDITIONS / "stock-daily.parquet"
+STOCK_TABLE_VERSION = 1  # bump when daily_features changes so local builds recompute the table
+TABLE_START = "2025-09-01"  # earliest feature day kept in the shared table (dev starts 2025-10-29)
+
+
+def _candle_files(dirs: list[Path]) -> list[Path]:
+    return [p for d in dirs if d.is_dir() for p in d.glob("*-1d-*.parquet")]
+
+
+def update_stock_table(dirs: list[Path] | None = None, dest: Path | None = None, force: bool = False) -> Path | None:
+    """Precompute daily features for every symbol in the local candle folders into the condition cache,
+    so builds without the candles (CI) produce the same condition columns. `arena publish` uploads it.
+
+    No-op without candles, or when the table is current (same version, newer than every candle file).
+    """
+    dirs, dest = dirs or candle_dirs(), dest or STOCK_TABLE
+    files = _candle_files(dirs)
+    if not files:
+        return None
+    meta_path = dest.with_suffix(".json")
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    if (not force and dest.exists() and meta.get("version") == STOCK_TABLE_VERSION
+            and dest.stat().st_mtime >= max(p.stat().st_mtime for p in files)):
+        return dest
+    frames = []
+    for sym in sorted({p.name.split("-1d-")[0] for p in files}):
+        f = daily_features(sym, dirs)
+        if f is None:
+            continue
+        f = f[f.index >= pd.Timestamp(TABLE_START)].dropna(how="all")
+        frames.append(f.astype("float32").rename_axis("day").reset_index().assign(symbol=sym))
+    if not frames:
+        return None
+    table = pd.concat(frames, ignore_index=True)[["symbol", "day", *FEATURE_COLS]]
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + ".tmp")
+    table.to_parquet(tmp, compression="zstd", index=False)
+    tmp.replace(dest)
+    meta_path.write_text(json.dumps({"version": STOCK_TABLE_VERSION, "rows": int(len(table)),
+                                     "symbols": int(table["symbol"].nunique()), "first_day": str(table["day"].min().date()),
+                                     "last_day": str(table["day"].max().date()), "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                     "sources": [str(d.relative_to(OUTPUTS)) if d.is_relative_to(OUTPUTS) else str(d) for d in dirs if d.is_dir()]},
+                                    ensure_ascii=False, indent=2))
+    return dest
+
+
+_TABLE_CACHE: dict = {}
+
+
+def _read_table(path: Path) -> pd.DataFrame:
+    key = (str(path), path.stat().st_mtime)
+    if key not in _TABLE_CACHE:
+        _TABLE_CACHE.clear()
+        t = pd.read_parquet(path)
+        _TABLE_CACHE[key] = t.assign(symbol=t["symbol"].astype(str), day=pd.to_datetime(t["day"]))
+    return _TABLE_CACHE[key]
+
+
+def _feature_rows(symbols, folder: Path | list[Path] | None, table: Path | None) -> pd.DataFrame | None:
+    """Daily feature rows for `symbols`: from candle folders when given, else the shared table,
+    else the local candle folders."""
+    table = table or STOCK_TABLE
+    if folder is None and table.exists():
+        t = _read_table(table)
+        return t[t["symbol"].isin(set(symbols))]
     feats = []
-    for sym in keys["symbol"].unique():
+    for sym in symbols:
         f = daily_features(sym, folder)
         if f is not None:
             feats.append(f.rename_axis("day").reset_index().assign(symbol=sym))
-    if not feats:
+    return pd.concat(feats, ignore_index=True) if feats else None
+
+
+def features_before(df: pd.DataFrame, day_col: str, symbol_col: str, folder: Path | list[Path] | None = None,
+                    table: Path | None = None) -> pd.DataFrame:
+    """For each row: the daily features of the last bar strictly before its trade day (= S, no look-ahead)."""
+    cols = FEATURE_COLS
+    keys = pd.DataFrame({"symbol": df[symbol_col].astype(str).to_numpy(),
+                         "day": pd.to_datetime(df[day_col].astype(str).str[:10]).astype("datetime64[ns]").to_numpy(), "row": np.arange(len(df))})
+    right = _feature_rows(keys["symbol"].unique(), folder, table)
+    if right is None or right.empty:
         return pd.DataFrame(np.nan, index=df.index, columns=cols)
-    right = pd.concat(feats, ignore_index=True).sort_values("day")
+    right = right.assign(day=pd.to_datetime(right["day"]).astype("datetime64[ns]")).sort_values("day")
     m = pd.merge_asof(keys.sort_values("day"), right, on="day", by="symbol", allow_exact_matches=False,
                       tolerance=pd.Timedelta(days=STALE_DAYS), direction="backward")
     m = m.sort_values("row")
@@ -164,7 +239,7 @@ def features_before(df: pd.DataFrame, day_col: str, symbol_col: str, folder: Pat
 
 
 def _attach_stock(df: pd.DataFrame, day_col: str, symbol_col: str | None, skip=frozenset(),
-                  folder: Path | None = None) -> list[dict]:
+                  folder: Path | list[Path] | None = None, table: Path | None = None) -> list[dict]:
     """Stock-level conditions known before entry: pick metadata already in the trade table plus
     features of the stock's own daily bars up to S. Columns with no usable data are not added."""
     added: list[dict] = []
@@ -177,7 +252,7 @@ def _attach_stock(df: pd.DataFrame, day_col: str, symbol_col: str | None, skip=f
         added.append({"key": key, "label": label, "role": "condition", "order": order + [MISSING],
                       **({"labels": labels} if labels else {})})
 
-    feats = features_before(df, day_col, symbol_col, folder) if symbol_col and symbol_col in df else None
+    feats = features_before(df, day_col, symbol_col, folder, table) if symbol_col and symbol_col in df else None
     chg = pd.to_numeric(df["chg1"], errors="coerce") if "chg1" in df else pd.Series(np.nan, index=df.index)
     if feats is not None:  # S-day change from the pick table, else from the stock's own S bar
         chg = chg.fillna(feats["day_ret"])

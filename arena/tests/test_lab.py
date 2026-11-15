@@ -1,5 +1,7 @@
 """Stock-level lab conditions: no look-ahead, fixed buckets, missing data handling."""
+import json
 import tempfile
+import unittest.mock
 import unittest
 from pathlib import Path
 
@@ -77,6 +79,27 @@ class StockConditionTest(unittest.TestCase):
             f = lab.daily_features("000001", [self.dir, other])
             self.assertEqual(f.index[-1], later[-1])
             self.assertAlmostEqual(f.loc[self.days[65], "day_ret"], 0.12)  # first folder wins
+
+    def test_shared_table_matches_candles_and_skips_rebuild(self):
+        dest = self.dir / "cond" / "stock-daily.parquet"
+        with unittest.mock.patch.object(lab, "TABLE_START", "2026-01-01"):
+            self.assertEqual(lab.update_stock_table([self.dir], dest), dest)
+            built = dest.stat().st_mtime_ns
+            self.assertEqual(lab.update_stock_table([self.dir], dest), dest)
+            self.assertEqual(dest.stat().st_mtime_ns, built, "current table is not rebuilt")
+        self.assertEqual(json.loads(dest.with_suffix(".json").read_text())["version"], lab.STOCK_TABLE_VERSION)
+        D = self.days[66].strftime("%Y-%m-%d")
+        df = pd.DataFrame({"symbol": ["000001", "000002"], "_day": [D, D]})
+        from_table = lab.features_before(df, "_day", "symbol", table=dest)
+        from_candles = lab.features_before(df, "_day", "symbol", self.dir)
+        np.testing.assert_allclose(from_table.to_numpy(), from_candles.to_numpy(), rtol=1e-6)
+        self.assertTrue(from_table.iloc[1].isna().all())  # unknown symbol stays missing
+        # a CI-like build (no candles) still gets the daily columns from the table
+        cols = lab._attach_stock(df.copy(), "_day", "symbol", table=dest)
+        self.assertIn("vol_ratio", {c["key"] for c in cols})
+
+    def test_no_candles_means_no_table(self):
+        self.assertIsNone(lab.update_stock_table([self.dir / "nothing"], self.dir / "t.parquet"))
 
     def test_columns_without_data_are_not_added(self):
         df = pd.DataFrame({"symbol": ["999999"], "_day": ["2026-03-02"]})

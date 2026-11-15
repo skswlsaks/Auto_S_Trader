@@ -8,7 +8,7 @@ from unittest import mock
 
 import pandas as pd
 
-from arena import remote, studies, watch
+from arena import lab, remote, studies, watch
 
 
 def _experiment(root: Path, kind="new-exp", version="20261120-v1", nets=(0.01, -0.02, 0.0, 0.03)):
@@ -27,7 +27,11 @@ class WatchTest(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.root, self.shared = self.tmp / "model-research", self.tmp / "shared"
         self.patches = [mock.patch.object(watch, "ROOT", self.root), mock.patch.object(watch, "STATE", self.tmp / "state.json"),
-                        mock.patch.object(studies, "STUDIES", self.tmp / "cache")]
+                        mock.patch.object(studies, "STUDIES", self.tmp / "cache"),
+                        mock.patch.object(lab, "CONDITIONS", self.tmp / "conditions"),
+                        mock.patch.object(lab, "update_conditions", lambda: None)]
+        (self.tmp / "conditions").mkdir()
+        (self.tmp / "conditions" / "stock-daily.json").write_text("{}")
         for p in self.patches:
             p.start()
 
@@ -54,6 +58,7 @@ class WatchTest(unittest.TestCase):
         (d / "REPORT.md").write_text("done")
         self.assertEqual(self.run_watch(), ["new-exp-20261120-v1"])
         self.assertTrue((self.shared / "studies" / "new-exp-20261120-v1" / "trades.parquet").exists())
+        self.assertTrue((self.shared / "conditions" / "stock-daily.json").exists(), "condition tables shared with the study")
         self.assertEqual(self.run_watch(), [], "unchanged -> not resubmitted")
         _experiment(self.root, nets=(0.02, -0.02, 0.0, 0.03))
         os.utime(d / "trades.parquet", (old, old))
