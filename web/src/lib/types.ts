@@ -70,7 +70,7 @@ export interface Study extends Omit<StudyIndexItem, "dimensions"> {
 }
 export interface CellDetail { curve: [string, number][]; monthly_pp: Record<string, number>; return_hist: { edges: number[]; counts: number[] }; exit_reasons?: Record<string, number> }
 
-export interface LabColumn { key: string; label: string; role: "model" | "condition"; values: string[]; labels: string[]; codes: number[] }
+export interface LabColumn { key: string; label: string; role: "model" | "condition"; help?: string; values: string[]; labels: string[]; codes: number[] }
 export interface LabSource { source_id: string; title: string; kind: "study" | "runs"; n: number; days: string[]; day: number[]; ret: number[]; columns: LabColumn[]; locked_holdout: boolean; study_id?: string; track_id?: string; split?: string }
 export interface LabIndexItem { source_id: string; file: string; title: string; kind: "study" | "runs"; n: number; locked_holdout: boolean; first_day: string; last_day: string; columns: { key: string; label: string; role: string; n: number }[] }
 

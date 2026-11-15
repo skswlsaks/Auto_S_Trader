@@ -101,6 +101,15 @@ class StockConditionTest(unittest.TestCase):
     def test_no_candles_means_no_table(self):
         self.assertIsNone(lab.update_stock_table([self.dir / "nothing"], self.dir / "t.parquet"))
 
+    def test_every_condition_has_help(self):
+        keys = {k for k, *_ in lab.PICK_BUCKETS + lab.DAILY_BUCKETS} | set(lab.CONDITION_LABELS) | {"pick_status"}
+        self.assertEqual(sorted(k for k in keys if not lab.CONDITION_HELP.get(k)), [])
+        D = self.days[66].strftime("%Y-%m-%d")
+        df = pd.DataFrame({"symbol": ["000001"], "_day": [D], "ret": [0.01], "o": [D]})
+        cols = lab._attach_stock(df, "_day", "symbol", folder=self.dir)
+        enc = lab._encode(df, cols, "_day", "ret", "o", {})
+        self.assertTrue(all(c.get("help") for c in enc["columns"]))
+
     def test_columns_without_data_are_not_added(self):
         df = pd.DataFrame({"symbol": ["999999"], "_day": ["2026-03-02"]})
         cols = lab._attach_stock(df, "_day", "symbol", skip={"market"}, folder=self.dir)

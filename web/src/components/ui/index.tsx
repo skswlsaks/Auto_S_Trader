@@ -2,7 +2,7 @@
 /* Model Arena UI primitives: thin wrappers over Radix with the Arena design tokens.
    Keep them small and composable; pages assemble these, never style raw Radix directly. */
 import { clsx } from "clsx";
-import { Dialog, Select, Tabs as RTabs, Tooltip } from "radix-ui";
+import { Dialog, Popover, Select, Tabs as RTabs, Tooltip } from "radix-ui";
 import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import type { MetricDef } from "@/lib/metric-defs";
 
@@ -75,6 +75,25 @@ export function Tip({ content, children, side = "top" }: { content: ReactNode; c
   );
 }
 export const TipProvider = Tooltip.Provider;
+
+/** "?" icon that opens an explanation on click/tap (works on touch, unlike a hover tooltip). */
+export function HelpTip({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button type="button" aria-label={`${title} 설명`}
+          className={cx("inline-grid h-4 w-4 flex-none cursor-help place-items-center rounded-full border border-ink-3 text-[10px] font-semibold leading-none text-ink-3",
+            "hover:border-ink-2 hover:text-ink-2 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent data-[state=open]:border-accent data-[state=open]:text-accent", className)}>?</button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content side="bottom" align="start" sideOffset={6} collisionPadding={12} className="tooltip-content help-content">
+          <b className="mb-1 block">{title}</b>
+          <div className="whitespace-pre-line">{children}</div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
 
 /** Metric name with its definition on hover/focus. */
 export function MetricLabel({ def, className }: { def: MetricDef; className?: string }) {

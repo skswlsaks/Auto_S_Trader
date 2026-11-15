@@ -80,10 +80,76 @@ DAILY_BUCKETS = [
     ("turnover20", "20일 중앙 거래대금", [-np.inf, 1e10, 3e10, 1e11, np.inf], ["100억 미만", "100~300억", "300~1000억", "1000억 이상"]),
     ("atr14", "14일 평균 일중 변동폭", [-np.inf, .07, .10, .13, np.inf], ["7% 미만", "7~10%", "10~13%", "13% 이상"]),
 ]
-PICK_STATUS_LABELS = {"invalidated": "무효", "waiting_point": "타점 대기", "point_today": "당일 타점", "waiting_breakout": "돌파 대기",
-                      "exit_today": "당일 청산", "entry": "진입", "above_point": "타점 위"}
-STAGE_LABELS = {"new_reference": "새 기준봉", "waiting_point": "타점 대기", "point_today": "당일 타점", "point_entry": "타점 진입",
-                "above_point": "타점 위", "waiting_breakout": "돌파 대기", "invalid_reference": "기준봉 무효"}
+# same wording as the reference-candle scanner (jongga_scan.mjs evaluate())
+PICK_STATUS_LABELS = {"invalidated": "이탈(셋업 종료)", "waiting_point": "포인트 미형성", "point_today": "오늘 포인트 형성",
+                      "waiting_breakout": "포인트 돌파 대기", "exit_today": "오늘 이탈", "entry": "진입 신호", "above_point": "포인트 위 유지"}
+STAGE_LABELS = {"new_reference": "새 기준봉", "waiting_point": "포인트 미형성", "point_today": "오늘 포인트 형성", "point_entry": "진입 신호",
+                "above_point": "포인트 위 유지", "waiting_breakout": "포인트 돌파 대기", "invalid_reference": "이탈(셋업 종료)"}
+
+# One-paragraph explanation per condition column, shown behind the "?" icon in the lab and returned by MCP.
+# S = the last trading day before the trade day D (the picks' 'S일'); everything here is known before entry.
+_REF = ("기준봉 = 종가가 전날보다 +5.8% 이상 오른 양봉, 또는 고가가 전날 종가 +12% 이상이었던 음봉\n"
+        "포인트 = 기준봉 이후 처음 기준가격(양봉은 종가, 음봉은 시가) 위로 마감한 봉\n"
+        "시크릿선 = 양봉 종가에서 몸통의 1/3 아래 가격")
+CONDITION_HELP = {
+    "regime_gate": "S일 장 마감 기준 코스닥 지수 국면입니다. S일 코스닥 종가가 20일 이동평균 위이고 S일 코스닥 등락률이 −1.5%보다 높으면 '통과'입니다. D일 장 시작 전에 확정됩니다.",
+    "gate_ok": "S일 장 마감 기준 코스닥 지수 국면입니다. S일 코스닥 종가가 20일 이동평균 위이고 S일 코스닥 등락률이 −1.5%보다 높으면 '국면 통과'입니다. D일 장 시작 전에 확정됩니다.",
+    "kosdaq_ma20": "S일 코스닥 지수 종가가 코스닥 20일 이동평균 위인지 아래인지입니다.",
+    "kosdaq_prev_ret": "S일 코스닥 지수의 하루 등락률 구간입니다.",
+    "weekday": "진입일(D)의 요일입니다. 표본이 작아 우연한 차이가 잘 생기므로 탐색용으로만 보세요.",
+    "month": "진입일(D)이 속한 달입니다. 시기별로 결과가 고른지 확인하는 용도이며, 다가올 달을 미리 고르는 조건으로는 쓸 수 없습니다.",
+    "entry_window": "실제 진입 시각(KST)이 속한 시간대입니다. 08:00–09:00은 장전 시간외 거래입니다.",
+    "market": "종목이 상장된 시장(코스피·코스닥)입니다.",
+    "stage": ("우리 일간 스캔이 S일 종가로 매긴 기준봉 셋업 단계입니다.\n"
+              "· 새 기준봉: S일 자체가 기준봉\n"
+              "· 포인트 미형성: 기준봉 이후 아직 기준가격 위 마감이 없음\n"
+              "· 오늘 포인트 형성: S일에 처음 기준가격 위로 마감\n"
+              "· 포인트 돌파 대기: 포인트 형성 후 그 아래에 있음\n"
+              "· 진입 신호: S일 종가가 포인트봉 종가를 돌파\n"
+              "· 포인트 위 유지: 이미 포인트 위에서 유지 중\n"
+              "· 이탈(셋업 종료): 기준봉 이후 시크릿선이나 20일선 아래로 마감한 적 있음\n\n" + _REF),
+    "rank": ("S일 종가 기준 후보 종목의 일봉 강도 점수 순위입니다(1이 가장 강함). 상위 3개만 D일 진입 대상입니다.\n"
+             "점수 = 20일 모멘텀 50% + 60일선의 20일 기울기 25% + 20일 ATR 15% + 20일 거래대금 10% (각각 그날 후보 안의 백분위)"),
+    "s_chg": "S일 하루 등락률입니다. 추천 표에 값이 있으면 그 값을, 없으면 종목 일봉에서 계산합니다. +10~20%는 '위험 표시' 기준 중 하나입니다.",
+    "ref_age": "S일 기준으로 가장 최근 기준봉이 며칠 전인지입니다. 당일(0일) = S일 자체가 기준봉이며 '위험 표시' 기준 중 하나입니다.\n\n" + _REF,
+    "stop_dist": ("진입가 대비 최초 손절가까지의 거리, (진입가 − 손절가) / 진입가입니다. 진입 순간 확정됩니다.\n"
+                  "· 종가·시가 매수: −3%\n"
+                  "· 시가 이탈 후 회복: 시가 이후 최저가\n"
+                  "· 모델 신호: 눌림 저점 − 0.1 ATR\n"
+                  "모든 손절가는 진입가의 0.3~3% 아래로 제한합니다."),
+    "pick_status": ("추천 종목이 S일 종가 기준으로 우리 기준봉 스캐너에서 어느 단계였는지입니다.\n"
+                    "· 포인트 미형성: 기준봉 이후 아직 기준가격 위 마감이 없음\n"
+                    "· 오늘 포인트 형성: S일에 처음 기준가격 위로 마감\n"
+                    "· 포인트 돌파 대기: 포인트 형성 후 그 아래에 있음\n"
+                    "· 진입 신호: S일 종가가 포인트봉 종가를 돌파\n"
+                    "· 포인트 위 유지: 이미 포인트 위에서 유지 중\n"
+                    "· 오늘 이탈: S일에 시크릿선이나 20일선 아래로 마감\n"
+                    "· 이탈(셋업 종료): 그 전에 이미 이탈 ('위험 표시' 기준 중 하나)\n\n" + _REF),
+    "vol_ratio": "S일 거래량을 S일까지 20거래일 거래량의 중앙값으로 나눈 값입니다. 1배보다 크면 평소보다 거래가 많았던 날입니다.",
+    "ret5": "S일 종가를 5거래일 전 종가와 비교한 수익률입니다. 최근 단기 상승·하락 정도를 나타냅니다.",
+    "ma20_dist": "S일 종가가 20일 이동평균(S일 포함)보다 몇 % 위·아래인지입니다. 클수록 단기 과열에 가깝습니다.",
+    "hi60_dist": "S일 종가가 최근 60거래일 최고가보다 몇 % 아래인지입니다. −3% 이내는 신고가 근처입니다.",
+    "turnover20": "S일까지 20거래일 일별 거래대금(종가 × 거래량)의 중앙값입니다. 유동성과 체결 가능 규모를 나타냅니다.",
+    "atr14": "S일까지 14거래일의 (고가 − 저가) / 전날 종가 평균입니다. 종목이 하루에 보통 얼마나 움직이는지를 나타냅니다.",
+    "scope": ("진입 신호를 찾은 시간대입니다(신호 봉이 끝난 시각, KST). 신호 다음 봉 시가에 체결합니다.\n"
+              "· 전 시간대 첫 신호: W1~W3 중 가장 먼저 난 신호\n"
+              "· 익일 보유: 남은 물량을 다음 거래일 15:20까지 보유"),
+    "pop": "거래 대상 종목 집합입니다.\n· 강사 추천: s_trader91 추천 글의 종목\n· 관찰 명단: 우리 일간 스캔이 고른 전체 시장 관찰 종목",
+    "period": ("분류기 학습 구간과의 관계입니다.\n"
+               "· 학습 전: D가 2026-08-26 이전. 뒤틀림 분류기(M1 계열)가 학습에 쓴 기간이라 그 모델의 결과가 실제보다 좋게 나올 수 있습니다.\n"
+               "· 학습 후: 2026-08-27 이후"),
+    "risk_flag": ("아래 중 하나라도 해당하면 '위험 표시 있음'입니다. 모두 S일 종가로 확정됩니다.\n"
+                  "· S일 +10~20% 급등\n· S일 자체가 기준봉(경과 0일)\n· 추천 상태 이탈(셋업 종료)"),
+    "kind": ("추천 글이 올라온 시점입니다.\n"
+             "· after: 전날 장 마감 후(저녁) 게시. D일 08:01 장전 봉부터 진입 가능\n"
+             "· pre: D일 아침 장 시작 전 게시"),
+}
+# The Arena runs' `stage` is an intraday rule stage, not the daily scanner stage above.
+RUN_STAGE_HELP = ("진입 신호가 난 분봉에서 구조 규칙(shape_v2)이 어느 단계였는지입니다.\n"
+                  "· 관찰: 진행 중인 구조 없음\n"
+                  "· 돌파: 두 고점을 이은 저항선을 종가로 돌파\n"
+                  "· 눌림: 돌파 뒤 저가가 낮아지며 되밀림\n"
+                  "· 재상승 확인: 눌림 저점이 기준 저점보다 높은 상태에서 직전 봉 고가와 저항선을 다시 넘음")
 STALE_DAYS = 7  # the last daily bar must be at most this many calendar days before the trade day
 
 
@@ -301,7 +367,8 @@ def _encode(df: pd.DataFrame, columns: list[dict], day_col: str, ret_col: str, o
         values = list(dict.fromkeys(values))
         code = {x: i for i, x in enumerate(values)}
         labels = c.get("labels") or {}
-        cols.append({"key": c["key"], "label": c["label"], "role": c["role"], "values": values,
+        help_ = c.get("help") or (CONDITION_HELP.get(c["key"]) if c["role"] == "condition" else None)
+        cols.append({"key": c["key"], "label": c["label"], "role": c["role"], **({"help": help_} if help_ else {}), "values": values,
                      "labels": [labels.get(x, x) for x in values], "codes": v.map(code).astype(int).tolist()})
     return {**meta, "n": int(len(df)), "days": days, "day": df[day_col].astype(str).map(day_idx).astype(int).tolist(),
             "ret": np.round(df[ret_col].astype(float).to_numpy(), 8).tolist(), "columns": cols}
@@ -328,7 +395,7 @@ def study_source(folder: Path, spec: dict) -> dict:
         if d["key"] in ("variant", "entry_variant"):
             labels = _entry_labels(sorted(df[d["key"]].unique())) | labels
         cols.append({"key": d["key"], "label": d["label"], "role": "model" if d["key"] in ("variant", "entry_variant", "policy") else "condition",
-                     "labels": labels})
+                     "labels": labels, **({"help": d["help"]} if d.get("help") else {})})
     if not any(d["key"] == "gate_ok" for d in spec["dimensions"]):  # same definition already a study dimension
         cols += _attach_regime(df, "_day")
     else:
@@ -364,7 +431,7 @@ def runs_source(track_id: str, split: str, runs: list[tuple[dict, list]]) -> dic
     cols += [{"key": "entry_window", "label": CONDITION_LABELS["entry_window"], "role": "condition",
               "order": ["08:00–09:00 (장전)", "09:00–10:30", "10:30–13:00", "13:00–14:30", "14:30 이후"]},
              {"key": "market", "label": "시장", "role": "condition"},
-             {"key": "stage", "label": "규칙 단계", "role": "condition", "order": ["observing", "breakout", "pullback", "confirmed"],
+             {"key": "stage", "label": "규칙 단계", "role": "condition", "help": RUN_STAGE_HELP, "order": ["observing", "breakout", "pullback", "confirmed"],
               "labels": {"observing": "관찰", "breakout": "돌파", "pullback": "눌림", "confirmed": "재상승 확인"}},
              {"key": "rank", "label": "일봉 강도 순위", "role": "condition", "order": ["1", "2", "3"]},
              {"key": "weekday", "label": "요일", "role": "condition", "order": WEEKDAYS[:5]}]

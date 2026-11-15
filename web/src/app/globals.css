@@ -108,6 +108,7 @@ body { font-family: var(--font-sans); font-size: 14px; line-height: 1.5; font-va
   @keyframes sheet-in { from { transform: translateX(16px); opacity: 0; } to { transform: none; opacity: 1; } }
 }
 .tooltip-content { background: var(--panel); color: var(--ink); border: 1px solid var(--rule); border-radius: 4px; padding: 7px 10px; font-size: 12px; max-width: 320px; box-shadow: 0 6px 20px rgba(24, 35, 58, .14); z-index: 60; line-height: 1.45; }
+.help-content { max-width: min(380px, calc(100vw - 24px)); outline: none; }
 .select-content { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; box-shadow: 0 8px 24px rgba(24, 35, 58, .14); z-index: 60; overflow: hidden; max-height: 360px; }
 .select-item { padding: 6px 28px 6px 10px; font-size: 13px; cursor: pointer; outline: none; position: relative; border-radius: 4px; }
 .select-item[data-highlighted] { background: var(--sunken); }

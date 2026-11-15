@@ -193,7 +193,8 @@ def arena_list_lab_sources() -> dict:
         src = data().lab(s["source_id"])
         out.append({"source_id": s["source_id"], "title": s["title"], "n": s["n"], "locked_holdout": s["locked_holdout"],
                     "period": [s["first_day"], s["last_day"]],
-                    "columns": [{"key": c["key"], "label": c["label"], "role": c["role"], "values": dict(zip(c["values"], c["labels"]))} for c in src["columns"]]})
+                    "columns": [{"key": c["key"], "label": c["label"], "role": c["role"], **({"help": c["help"]} if c.get("help") else {}),
+                                 "values": dict(zip(c["values"], c["labels"]))} for c in src["columns"]]})
     return {"sources": out}
 
 

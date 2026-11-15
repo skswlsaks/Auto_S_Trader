@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useDeferredValue, useMemo } from "react";
 import { CurveChart, Heatmap, MetricStrip, type HeatCell } from "@/components/charts";
 import { useColors } from "@/components/charts/echart";
-import { Badge, Button, Callout, cx, Empty, Loading, MetricLabel, Panel, Segmented, SelectBox, Stat, StatGrid } from "@/components/ui";
+import { Badge, Button, Callout, cx, Empty, HelpTip, Loading, MetricLabel, Panel, Segmented, SelectBox, Stat, StatGrid } from "@/components/ui";
 import { useIndex, useLabSource } from "@/lib/data";
 import { groupBy, metrics, randomPercentile, select, type Filters, type LabMetrics } from "@/lib/engine";
 import { int, pct, prob, spct } from "@/lib/format";
@@ -100,12 +100,12 @@ export function LabView() {
             {(["model", "condition"] as const).map(role => (
               <section key={role} className="border-b border-rule px-4 py-3 last:border-b-0">
                 <h2 className="m-0 mb-2 text-[13px] font-semibold">{role === "model" ? "모델·규칙" : "조건"}</h2>
-                {role === "condition" && <p className="mb-2 mt-0 text-xs text-ink-3">모두 진입 전에 알 수 있는 정보입니다. 칩을 눌러 빼거나 넣습니다.</p>}
+                {role === "condition" && <p className="mb-2 mt-0 text-xs text-ink-3">모두 진입 전에 알 수 있는 정보입니다. 칩을 눌러 빼거나 넣습니다. ? 를 누르면 조건 설명이 나옵니다. S일 = 진입일(D) 직전 거래일.</p>}
                 {src.columns.filter(c => c.role === role).map(c => {
                   const allowed = filters[c.key], counts = result.counts[c.key];
                   return (
                     <div key={c.key} className="mb-3">
-                      <div className="mb-1 flex items-center gap-2 text-xs text-ink-2"><span className="flex-1 font-medium">{c.label}</span>
+                      <div className="mb-1 flex items-center gap-2 text-xs text-ink-2"><span className="flex flex-1 items-center gap-1 font-medium">{c.label}{c.help && <HelpTip title={c.label}>{c.help}</HelpTip>}</span>
                         {role === "condition" && allowed && <button className="text-accent" onClick={() => setFilter(c.key, null)}>모두</button>}
                         {role === "model" && <button className="text-accent" onClick={() => setFilter(c.key, allowed && allowed.length === c.values.length ? [0] : [...Array(c.values.length).keys()])}>{allowed && allowed.length === c.values.length ? "하나만" : "모두"}</button>}
                       </div>
